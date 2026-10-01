@@ -30,6 +30,8 @@ export const MessageType = {
   RETURN_TO_LOBBY: "RETURN_TO_LOBBY", // S->C (payload 없음) — 로비로 돌아가야 하는 유저에게만 온다
   OPPONENT_JOINED: "OPPONENT_JOINED", // S->C — 재게임 신청 후 새 상대를 기다리던 중, 새 상대가 입장했을 때
   REJOIN_GAME: "REJOIN_GAME", // S->C — ENTER_LOBBY 응답 직후, 게임 도중 끊겼다가 재접속한 유저에게만 온다.
+  RANK_DAILY: "RANK_DAILY", // C->S 요청(payload 없음) / S->C 같은 type 재사용 — 일간 랭킹 상위 10명 + 내 정보
+  RANK_WEEKLY: "RANK_WEEKLY", // C->S 요청(payload 없음) / S->C 같은 type 재사용 — 주간 랭킹 상위 10명 + 내 정보
   ERROR: "ERROR", // S->C
 
   // 관리자(Watcher) 채널 전용 — 로컬 엑셀 "관리자" 시트 + 서버 소스(server/src/common/types.ts) 기준.
@@ -183,6 +185,29 @@ export interface RejoinGamePayload {
   reconnection_token: string;
 }
 
+// RANK_DAILY/RANK_WEEKLY 의 랭킹 한 줄 — [별명, 점수] 튜플(문서 표기 그대로).
+export type RankEntry = [name: string, score: number];
+
+// RANK_DAILY/RANK_WEEKLY 응답의 내 순위 정보.
+export interface MyRankInfo {
+  rank: number;
+  score: number;
+}
+
+// RANK_DAILY 응답 (S->C, 같은 type 재사용, 요청은 payload 없음). 일간 랭킹 상위 10명 + 내 정보.
+export interface RankDailyPayload {
+  date: string;
+  list: RankEntry[];
+  my: MyRankInfo;
+}
+
+// RANK_WEEKLY 응답 (S->C, 같은 type 재사용, 요청은 payload 없음). 주간 랭킹 상위 10명 + 내 정보.
+export interface RankWeeklyPayload {
+  term: { start: string; end: string };
+  list: RankEntry[];
+  my: MyRankInfo;
+}
+
 // READY 로 보내는 값 (C->S). 취소할 때는 ready:"N".
 export interface ReadyPayload {
   ready: "Y" | "N";
@@ -218,11 +243,18 @@ export interface OneResultPayload {
   win?: string;
 }
 
+// GAME_RESULT 의 winner/loser — 2026-10-01 서버 변경. player1/player2{개수}+win(승자 userid) 대신
+// 승자/패자를 바로 구분해서 보낸다(플레이어 쪽을 직접 가리키므로 더 이상 player1/player2+win 비교가 필요 없음).
+export interface GameResultPlayerInfo {
+  userid: string;
+  win_count: number;
+  win_per: number; // total_win_count 기준의 승율
+}
+
 // GAME_RESULT 로 받는 값 (S->C, 최종 결과)
 export interface GameResultPayload {
-  player1: number;
-  player2: number;
-  win: string;
+  winner: GameResultPlayerInfo;
+  loser: GameResultPlayerInfo;
 }
 
 // GAME_RESULT 로 보내는 값 (C->S, 재시작 선택 — 같은 type 을 재사용한다)

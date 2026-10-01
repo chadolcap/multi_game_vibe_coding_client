@@ -19,6 +19,8 @@ import {
   type SeatReservation,
   type RejoinGamePayload,
   type NoticePayload,
+  type RankDailyPayload,
+  type RankWeeklyPayload,
 } from "../common/types";
 
 const LOG_TAG = "[Lobby]";
@@ -39,6 +41,8 @@ export interface LobbyEventHandlers {
   onMatchFound?: (envelope: Envelope<MatchFoundPayload>) => void;
   // ENTER_LOBBY 응답 직후, 게임 도중 재접속한 유저에게만 온다.
   onRejoinGame?: (envelope: Envelope<RejoinGamePayload>) => void;
+  onRankDaily?: (envelope: Envelope<RankDailyPayload>) => void;
+  onRankWeekly?: (envelope: Envelope<RankWeeklyPayload>) => void;
   onError?: (envelope: Envelope<ErrorPayload>) => void;
   // 관리자 공지(SEND_NOTICE, 같은 type 재사용) — 로비에 접속해 있는 동안 언제든 올 수 있다.
   onNotice?: (envelope: Envelope<NoticePayload>) => void;
@@ -100,6 +104,14 @@ export class LobbyConnection {
     this.room.onMessage(MessageType.REJOIN_GAME, (envelope: Envelope<RejoinGamePayload>) => {
       LogReceived(MessageType.REJOIN_GAME, envelope);
       handlers.onRejoinGame?.(envelope);
+    });
+    this.room.onMessage(MessageType.RANK_DAILY, (envelope: Envelope<RankDailyPayload>) => {
+      LogReceived(MessageType.RANK_DAILY, envelope);
+      handlers.onRankDaily?.(envelope);
+    });
+    this.room.onMessage(MessageType.RANK_WEEKLY, (envelope: Envelope<RankWeeklyPayload>) => {
+      LogReceived(MessageType.RANK_WEEKLY, envelope);
+      handlers.onRankWeekly?.(envelope);
     });
     this.room.onMessage(MessageType.ERROR, (envelope: Envelope<ErrorPayload>) => {
       LogReceived(MessageType.ERROR, envelope);
@@ -173,6 +185,18 @@ export class LobbyConnection {
   public SendPlayInfo(): void {
     if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
     this.room.send(MessageType.PLAY_INFO);
+  }
+
+  // 일간 랭킹 요청 (payload 없음).
+  public SendRankDaily(): void {
+    if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
+    this.room.send(MessageType.RANK_DAILY);
+  }
+
+  // 주간 랭킹 요청 (payload 없음).
+  public SendRankWeekly(): void {
+    if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
+    this.room.send(MessageType.RANK_WEEKLY);
   }
 
   public IsConnected(): boolean {

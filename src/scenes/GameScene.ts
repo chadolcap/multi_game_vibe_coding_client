@@ -66,6 +66,11 @@ class PlayerPanel extends Container {
     this.name_text.text = `name: ${info.name}`;
     this.win_per_text.text = `win_per: ${info.win_per}`;
   }
+
+  // GAME_RESULT 는 userid/win_count/win_per 만 주고 name/avatar 는 없어서, win_per 만 따로 갱신한다.
+  public UpdateWinPer(win_per: number): void {
+    this.win_per_text.text = `win_per: ${win_per}`;
+  }
 }
 
 export interface GameSceneOptions {
@@ -361,14 +366,20 @@ export class GameScene implements Scene {
   }
 
   private HandleGameResult(payload: GameResultPayload): void {
-    const my_wins = this.is_player1_me ? payload.player1 : payload.player2;
-    const opponent_wins = this.is_player1_me ? payload.player2 : payload.player1;
+    const am_i_winner = payload.winner.userid === this.options.my_userid;
+    const me = am_i_winner ? payload.winner : payload.loser;
+    const opponent = am_i_winner ? payload.loser : payload.winner;
+    // ENTER_ROOM 때 보여준 사용자 정보 뷰(userid/name/win_per)의 win_per 를 최신 값으로 갱신한다.
+    this.my_panel.UpdateWinPer(me.win_per);
+    this.opponent_panel.UpdateWinPer(opponent.win_per);
     if (this.round_result_timer) clearTimeout(this.round_result_timer);
     this.round_result_banner.Hide();
     this.rps_panel.visible = false;
     this.round_status.text = "";
     this.countdown_text.text = "";
-    this.result_popup.Show(`나: ${my_wins}승  상대: ${opponent_wins}승\n최종 승자: ${this.DescribeWinner(payload.win)}`);
+    this.result_popup.Show(
+      `나: ${me.win_count}승 (승률 ${me.win_per}%)  상대: ${opponent.win_count}승 (승률 ${opponent.win_per}%)\n최종 승자: ${this.DescribeWinner(payload.winner.userid)}`
+    );
   }
 
   private OnClickReplay(): void {

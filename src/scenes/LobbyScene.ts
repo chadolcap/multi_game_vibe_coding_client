@@ -18,6 +18,8 @@ import type {
   MatchFoundPayload,
   NameResultPayload,
   RejoinGamePayload,
+  RankEntry,
+  MyRankInfo,
 } from "../common/types";
 
 // 통신 규약 문서(계속 갱신됨, 항상 최신 내용을 다시 확인할 것):
@@ -66,6 +68,13 @@ function FormatPayload(payload: unknown): string {
     .join("\n");
 }
 
+// RANK_DAILY/RANK_WEEKLY 의 list([별명, 점수] 튜플 배열)와 내 순위를 팝업용 줄글로 바꾼다.
+function FormatRankList(list: RankEntry[], my: MyRankInfo): string {
+  const lines = list.map(([name, score], index) => `${index + 1}위  ${name}  ${score}점`);
+  lines.push("", `내 순위: ${my.rank}위 (${my.score}점)`);
+  return lines.join("\n");
+}
+
 // GameScene 이 ENTER_ROOM 응답(player1/player2)에서 내 쪽을 구분할 수 있도록 my_userid 를 넘겨준다.
 // name/avatar/win_per 는 ENTER_ROOM·OPPONENT_JOINED 응답에 이미 들어있어 따로 넘길 방법이 없다.
 export interface GameHandoff {
@@ -91,6 +100,8 @@ export class LobbyScene implements Scene {
   private readonly my_info_button: Button;
   private readonly join_match_button: Button;
   private readonly cancel_match_button: Button;
+  private readonly rank_daily_button: Button;
+  private readonly rank_weekly_button: Button;
   private readonly connection = new LobbyConnection();
   private readonly options: LobbySceneOptions;
   private my_userid = "";
@@ -117,15 +128,31 @@ export class LobbyScene implements Scene {
       height: 88,
       onClick: () => this.OnClickCancelMatch(),
     });
+    this.rank_daily_button = new Button({
+      label: "일간 랭킹",
+      width: 210,
+      height: 88,
+      onClick: () => this.OnClickRankDaily(),
+    });
+    this.rank_weekly_button = new Button({
+      label: "주간 랭킹",
+      width: 210,
+      height: 88,
+      onClick: () => this.OnClickRankWeekly(),
+    });
     this.my_info_button.visible = false;
     this.join_match_button.visible = false;
     this.cancel_match_button.visible = false;
+    this.rank_daily_button.visible = false;
+    this.rank_weekly_button.visible = false;
 
     this.view.addChild(
       this.status,
       this.my_info_button,
       this.join_match_button,
       this.cancel_match_button,
+      this.rank_daily_button,
+      this.rank_weekly_button,
       this.nickname_popup,
       this.info_popup
     );
@@ -143,6 +170,12 @@ export class LobbyScene implements Scene {
     this.my_info_button.position.set(center_x - this.my_info_button.width / 2, 600);
     this.join_match_button.position.set(center_x - this.join_match_button.width / 2, 710);
     this.cancel_match_button.position.set(center_x - this.cancel_match_button.width / 2, 710);
+
+    const rank_gap = 20;
+    const rank_row_width = this.rank_daily_button.width + rank_gap + this.rank_weekly_button.width;
+    const rank_row_x = center_x - rank_row_width / 2;
+    this.rank_daily_button.position.set(rank_row_x, 820);
+    this.rank_weekly_button.position.set(rank_row_x + this.rank_daily_button.width + rank_gap, 820);
   }
 
   public Destroy(): void {
@@ -161,6 +194,13 @@ export class LobbyScene implements Scene {
         onEnterLobbyResult: (envelope) => this.HandleEnterLobbyResult(envelope.payload),
         onNameResult: (envelope) => this.HandleNameResult(envelope.payload),
         onPlayInfo: (envelope) => this.info_popup.Show("내 정보", FormatPayload(envelope.payload)),
+        onRankDaily: (envelope) =>
+          this.info_popup.Show(`일간 랭킹 (${envelope.payload.date})`, FormatRankList(envelope.payload.list, envelope.payload.my)),
+        onRankWeekly: (envelope) =>
+          this.info_popup.Show(
+            `주간 랭킹 (${envelope.payload.term.start} ~ ${envelope.payload.term.end})`,
+            FormatRankList(envelope.payload.list, envelope.payload.my)
+          ),
         onJoinMatchResult: (envelope) => {
           // 성공(result:Y)은 문서상 이 type 으로 오는 것으로 되어 있지만, 실제로는 MATCH_FOUND 로 온다(비고 참고).
           // 실패만 여기서 처리하고, 연결은 유지되니 다시 '게임 참여'를 누를 수 있게 한다.
@@ -249,6 +289,18 @@ export class LobbyScene implements Scene {
     this.status.visible = false;
     this.my_info_button.visible = true;
     this.join_match_button.visible = true;
+    this.rank_daily_button.visible = true;
+    this.rank_weekly_button.visible = true;
+  }
+
+  private OnClickRankDaily(): void {
+    this.connection.SendRankDaily();
+    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "RANK_DAILY" })}`);
+  }
+
+  private OnClickRankWeekly(): void {
+    this.connection.SendRankWeekly();
+    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "RANK_WEEKLY" })}`);
   }
 
   private OnClickMyInfo(): void {
@@ -330,6 +382,8 @@ export class LobbyScene implements Scene {
       this.my_info_button.visible = false;
       this.join_match_button.visible = false;
       this.cancel_match_button.visible = false;
+      this.rank_daily_button.visible = false;
+      this.rank_weekly_button.visible = false;
       this.status.visible = true;
       void this.ConnectToLobby();
     }
