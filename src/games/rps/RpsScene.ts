@@ -1,79 +1,33 @@
-// 게임방 씬 — 씬이 만들어지면 바로 ENTER_ROOM 을 요청하고, 응답을 받으면
+// 가위바위보 게임방 씬 — 씬이 만들어지면 바로 ENTER_ROOM 을 요청하고, 응답을 받으면
 // 왼쪽에 상대 정보 / 오른쪽에 내 정보를 표시한 뒤 '게임 준비' 버튼을 활성화한다.
 // 준비가 끝나면 GAME_START -> (ONE_START -> ONE_REMAIN_TIME* -> 선택 -> ONE_RESULT) 반복 -> GAME_RESULT 순으로 진행한다.
-import { Container, Graphics, Text } from "pixi.js";
+import { Container, Text } from "pixi.js";
 import { CloseCode, type Room } from "@colyseus/sdk";
-import type { Scene } from "./Scene";
-import { Button } from "../ui/Button";
-import { RpsChoicePanel, RPS_PANEL_WIDTH } from "../ui/RpsChoicePanel";
-import { GameResultPopup } from "../ui/GameResultPopup";
-import { GameStartBanner } from "../ui/GameStartBanner";
-import { RoundResultBanner } from "../ui/RoundResultBanner";
-import type { NoticeBanner } from "../ui/NoticeBanner";
-import { GameConnection } from "../network/GameConnection";
+import type { Scene } from "../../scenes/Scene";
+import { Button } from "../../ui/Button";
+import { PlayerPanel, AVATAR_SIZE } from "../../ui/PlayerPanel";
+import { RpsChoicePanel, RPS_PANEL_WIDTH } from "./RpsChoicePanel";
+import { GameResultPopup } from "../../ui/GameResultPopup";
+import { GameStartBanner } from "../../ui/GameStartBanner";
+import { RoundResultBanner } from "../../ui/RoundResultBanner";
+import type { NoticeBanner } from "../../ui/NoticeBanner";
+import { RpsConnection } from "./RpsConnection";
 import type {
   EnterRoomPayload,
   OutUserPayload,
-  OneRemainTimePayload,
-  OneResultPayload,
   GameResultPayload,
   OpponentJoinedPayload,
-  RoomPlayerInfo,
-  RpsChoice,
-} from "../common/types";
+} from "../../common/types";
+import type { OneRemainTimePayload, OneResultPayload, RpsChoice } from "./types";
 
 const LOG_TAG = "[Game]";
-
-const AVATAR_SIZE = 160;
-const TEXT_STYLE = { fill: 0xeaeaea, fontSize: 16, fontFamily: "sans-serif" } as const;
 
 // GAME_START 연출(효과 배너)을 보여주는 시간. 이 동안은 가위바위보를 낼 수 없다.
 const GAME_START_BANNER_DURATION_MS = 5000;
 // ONE_RESULT 를 팝업으로 보여주는 시간.
 const ROUND_RESULT_DURATION_MS = 5000;
 
-// 아바타 이미지가 아직 없어서, 아바타 코드를 사각형 안에 그대로 표기한다.
-class PlayerPanel extends Container {
-  private readonly avatar_label: Text;
-  private readonly userid_text: Text;
-  private readonly name_text: Text;
-  private readonly win_per_text: Text;
-
-  constructor() {
-    super();
-
-    const avatar_box = new Graphics().roundRect(0, 0, AVATAR_SIZE, AVATAR_SIZE, 12).fill(0x2c2f4a);
-
-    this.avatar_label = new Text({ text: "-", style: { fill: 0xffffff, fontSize: 18, fontFamily: "monospace" } });
-    this.avatar_label.anchor.set(0.5);
-    this.avatar_label.position.set(AVATAR_SIZE / 2, AVATAR_SIZE / 2);
-
-    this.userid_text = new Text({ text: "userid: -", style: TEXT_STYLE });
-    this.name_text = new Text({ text: "name: -", style: TEXT_STYLE });
-    this.win_per_text = new Text({ text: "win_per: -", style: TEXT_STYLE });
-
-    this.userid_text.position.set(0, AVATAR_SIZE + 16);
-    this.name_text.position.set(0, AVATAR_SIZE + 16 + 24);
-    this.win_per_text.position.set(0, AVATAR_SIZE + 16 + 48);
-
-    this.addChild(avatar_box, this.avatar_label, this.userid_text, this.name_text, this.win_per_text);
-  }
-
-  // 표기 순서: userid, name, win_per
-  public SetInfo(info: RoomPlayerInfo): void {
-    this.avatar_label.text = info.avatar;
-    this.userid_text.text = `userid: ${info.userid}`;
-    this.name_text.text = `name: ${info.name}`;
-    this.win_per_text.text = `win_per: ${info.win_per}`;
-  }
-
-  // GAME_RESULT 는 userid/win_count/win_per 만 주고 name/avatar 는 없어서, win_per 만 따로 갱신한다.
-  public UpdateWinPer(win_per: number): void {
-    this.win_per_text.text = `win_per: ${win_per}`;
-  }
-}
-
-export interface GameSceneOptions {
+export interface RpsSceneOptions {
   room: Room;
   // player1/player2 중 내 쪽을 구분하기 위한 값 (ENTER_ROOM 은 name/avatar/win_per 까지 다 담아 오므로 이것만 있으면 된다).
   my_userid: string;
@@ -85,7 +39,7 @@ export interface GameSceneOptions {
   onExitToLobby: () => void;
 }
 
-export class GameScene implements Scene {
+export class RpsScene implements Scene {
   readonly view = new Container();
 
   private readonly status: Text;
@@ -99,8 +53,8 @@ export class GameScene implements Scene {
   private readonly round_result_banner = new RoundResultBanner();
   private readonly result_popup: GameResultPopup;
   private readonly back_to_lobby_button: Button;
-  private readonly connection: GameConnection;
-  private readonly options: GameSceneOptions;
+  private readonly connection: RpsConnection;
+  private readonly options: RpsSceneOptions;
   // player1/player2 중 어느 쪽이 나인지 — ENTER_ROOM 에서 한 번 정해지면 이 방에서는 계속 유지된다.
   private is_player1_me = true;
   // '재시작'을 눌러서 응답을 기다리는 중인지 — 이 상태에서 OUT_USER 를 받으면(상대가 나가기를 선택함)
@@ -118,9 +72,9 @@ export class GameScene implements Scene {
   // ONE_RESULT 팝업을 5초 뒤에 지우는 타이머. 다음 ONE_START 가 먼저 오면 그때 바로 지운다.
   private round_result_timer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(options: GameSceneOptions) {
+  constructor(options: RpsSceneOptions) {
     this.options = options;
-    this.connection = new GameConnection(options.room);
+    this.connection = new RpsConnection(options.room);
 
     this.status = new Text({ text: "", style: { fill: 0xff6b6b, fontSize: 18, fontFamily: "sans-serif" } });
     this.status.anchor.set(0.5, 0);

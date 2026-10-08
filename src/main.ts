@@ -2,7 +2,9 @@ import { Application } from "pixi.js";
 import "./style.css";
 import { SceneManager } from "./scenes/SceneManager";
 import { LobbyScene } from "./scenes/LobbyScene";
-import { GameScene } from "./scenes/GameScene";
+import { RpsScene } from "./games/rps/RpsScene";
+import { OthelloScene } from "./games/othello/OthelloScene";
+import { GameId } from "./common/types";
 import { LoadingOverlay } from "./ui/LoadingOverlay";
 import { NoticeBanner } from "./ui/NoticeBanner";
 import { GAME_WIDTH, GAME_HEIGHT } from "./config";
@@ -48,13 +50,15 @@ async function Main(): Promise<void> {
   // 로비에서 매칭이 성사되어 게임 채널 접속까지 끝나면 호출된다.
   function HandleGameRoomReady(handoff: GameHandoff): void {
     loading_overlay.Hide();
-    const game_scene = new GameScene({
+    // 게임 종류별로 씬 옵션은 같다 — 서버가 방 입장/준비/결과를 같은 규약으로 보내기 때문이다.
+    const scene_options = {
       room: handoff.room,
       my_userid: handoff.my_userid,
       is_rejoin: handoff.is_rejoin,
       notice_banner,
       onExitToLobby: GoToLobby,
-    });
+    };
+    const game_scene = handoff.game === GameId.OTHELLO ? new OthelloScene(scene_options) : new RpsScene(scene_options);
     scene_manager.ChangeScene(game_scene);
   }
 

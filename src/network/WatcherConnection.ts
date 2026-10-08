@@ -1,5 +1,5 @@
 // 관리자(Watcher) 채널 접속 담당. Colyseus Room 을 감싸서 관리자 페이지가 프로토콜 세부사항을
-// 몰라도 되게 한다 (LobbyConnection/GameConnection 과 같은 패턴).
+// 몰라도 되게 한다 (LobbyConnection/RpsConnection 과 같은 패턴).
 
 import { Client, type Room } from "@colyseus/sdk";
 import { NETWORK_CONFIG } from "../config";
@@ -8,6 +8,7 @@ import {
   type Envelope,
   type AdminLoginPayload,
   type AdminLoginResultPayload,
+  type AdminChannelCountQuery,
   type AdminChannelCountPayload,
   type AdminChannelUserQuery,
   type AdminChannelUserResultPayload,
@@ -75,13 +76,13 @@ export class WatcherConnection {
     this.room.send(MessageType.ADMIN_LOGIN, payload);
   }
 
-  // 전체 채널(로비+게임)의 현재 접속자 수 요청 (payload 없음).
-  public SendChannelCountRequest(): void {
+  // 전체 채널(로비+게임)의 현재 접속자 수 요청 — 어떤 게임의 채널인지 game 으로 지정한다.
+  public SendChannelCountRequest(payload: AdminChannelCountQuery): void {
     if (!this.room) throw new Error("관리자 채널에 접속되어 있지 않습니다.");
-    this.room.send(MessageType.ADMIN_CHANNEL_COUNT);
+    this.room.send(MessageType.ADMIN_CHANNEL_COUNT, payload);
   }
 
-  // 특정 채널(lobby:N 또는 game:N)의 접속자 목록 요청.
+  // 특정 채널(game + channel: "lobby_1" 등)의 접속자 목록 요청.
   public SendChannelUserRequest(payload: AdminChannelUserQuery): void {
     if (!this.room) throw new Error("관리자 채널에 접속되어 있지 않습니다.");
     this.room.send(MessageType.ADMIN_CHANNEL_USER, payload);

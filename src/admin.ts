@@ -1,7 +1,7 @@
 // 관리자 페이지 — admin.html 의 진입점. PixiJS 를 쓰지 않고 순수 DOM 으로 구성한다
 // (게임 화면이 아니라 조회/입력 위주의 관리 도구라 캔버스가 필요 없음).
 import { WatcherConnection } from "./network/WatcherConnection";
-import type { AdminChannelUserEntry } from "./common/types";
+import type { AdminChannelUserEntry, GameId } from "./common/types";
 
 const LOG_TAG = "[Admin]";
 
@@ -19,7 +19,10 @@ const password_input = GetElement<HTMLInputElement>("admin-password");
 const login_button = GetElement<HTMLButtonElement>("login-button");
 const login_status = GetElement<HTMLSpanElement>("login-status");
 
-const channel_count_button = GetElement<HTMLButtonElement>("channel-count-button");
+// 전체 채널 정보 / 채널 유저 정보 / 공지 전송이 모두 같은 game 값을 쓴다.
+const game_select = GetElement<HTMLSelectElement>("game-select");
+
+const channel_count_button =GetElement<HTMLButtonElement>("channel-count-button");
 const channel_count_body = GetElement<HTMLTableSectionElement>("channel-count-body");
 
 const channel_type_select = GetElement<HTMLSelectElement>("channel-type-select");
@@ -34,6 +37,10 @@ const notice_end_input = GetElement<HTMLInputElement>("notice-end-time");
 const notice_message_input = GetElement<HTMLTextAreaElement>("notice-message");
 const notice_send_button = GetElement<HTMLButtonElement>("notice-send-button");
 const notice_status = GetElement<HTMLSpanElement>("notice-status");
+
+function GetSelectedGame(): GameId {
+  return game_select.value as GameId;
+}
 
 function RenderChannelCountTable(count: Record<string, number>): void {
   channel_count_body.innerHTML = "";
@@ -55,7 +62,7 @@ function RenderChannelUserTable(users: AdminChannelUserEntry[]): void {
     const userid_cell = document.createElement("td");
     userid_cell.textContent = entry.userid;
     const room_cell = document.createElement("td");
-    room_cell.textContent = entry.room ?? "-";
+    room_cell.textContent = entry.room !== undefined ? String(entry.room) : "-";
     row.append(userid_cell, room_cell);
     channel_user_body.appendChild(row);
   }
@@ -114,13 +121,19 @@ login_form.addEventListener("submit", (event) => {
 });
 
 channel_count_button.addEventListener("click", () => {
-  connection.SendChannelCountRequest();
+  const payload = { game: GetSelectedGame() };
+  connection.SendChannelCountRequest(payload);
+  console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "ADMIN_CHANNEL_COUNT", payload })}`);
 });
 
 channel_user_button.addEventListener("click", () => {
-  const channel_no = Number(channel_no_input.value);
-  const payload = channel_type_select.value === "lobby" ? { lobby: channel_no } : { game: channel_no };
+  // channel 은 room_name 형식("lobby_1", "rps_2", "othello_1")으로 만든다. 게임 채널은 위에서 선택한 게임의
+  // 이름이 접두사가 되므로(game 과 channel 이 어긋나지 않게) 채널 종류가 "game" 이면 선택한 게임명을 쓴다.
+  const game = GetSelectedGame();
+  const channel_prefix = channel_type_select.value === "lobby" ? "lobby" : game;
+  const payload = { game, channel: `${channel_prefix}_${Number(channel_no_input.value)}` };
   connection.SendChannelUserRequest(payload);
+  console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "ADMIN_CHANNEL_USER", payload })}`);
 });
 
 function GetCheckedNoticeChannels(): string[] {
@@ -140,12 +153,14 @@ notice_send_button.addEventListener("click", () => {
   // <input type="date"> 는 "YYYY-MM-DD" 형식 — mon/day 만 뽑아 쓴다(연도는 프로토콜에 없음).
   const [, mon, day] = notice_date_input.value.split("-").map(Number);
 
-  connection.SendNotice({
+  const payload = {
+    game: GetSelectedGame(),
     time: { mon, day, start: notice_start_input.value, end: notice_end_input.value },
     channel,
     message,
-  });
+  };
+  connection.SendNotice(payload);
 
   notice_status.textContent = "전송했습니다.";
-  console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "SEND_NOTICE", payload: { channel, message } })}`);
+  console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "SEND_NOTICE", payload })}`);
 });

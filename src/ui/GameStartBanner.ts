@@ -1,4 +1,4 @@
-// GAME_START 를 알리는 5초짜리 연출 배너. 타이머는 GameScene 이 관리하고, 이 컴포넌트는 보여주기/숨기기만 한다.
+// GAME_START 를 알리는 5초짜리 연출 배너. 타이머는 RpsScene 이 관리하고, 이 컴포넌트는 보여주기/숨기기만 한다.
 import { Container, Graphics, Text } from "pixi.js";
 import { GAME_WIDTH, GAME_HEIGHT } from "../config";
 

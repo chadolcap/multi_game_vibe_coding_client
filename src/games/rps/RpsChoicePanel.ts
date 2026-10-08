@@ -1,7 +1,7 @@
 // 가위/바위/보 선택 버튼 3개를 가로로 배치한 패널.
 import { Container } from "pixi.js";
-import { Button } from "./Button";
-import { RpsChoice } from "../common/types";
+import { Button } from "../../ui/Button";
+import { RpsChoice } from "./types";
 
 export interface RpsChoicePanelOptions {
   onSelect: (choice: RpsChoice) => void;

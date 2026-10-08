@@ -22,23 +22,20 @@ export const MessageType = {
   OUT_USER: "OUT_USER", // S->C (게임 전/후 상대 퇴장 알림)
   READY: "READY", // C->S (게임 준비/취소) / 같은 type 으로 S->C 응답
   GAME_START: "GAME_START", // S->C (payload 없음)
-  ONE_START: "ONE_START", // S->C (한 판 시작)
-  ONE_REMAIN_TIME: "ONE_REMAIN_TIME", // S->C (한 판 남은 시간, 1초 단위. count:0 이면 선택 종료)
-  SELECT_GAME: "SELECT_GAME", // C->S (가위/바위/보 선택)
-  ONE_RESULT: "ONE_RESULT", // S->C (한 판 결과)
+  // 가위바위보 전용 판 진행 메시지(ONE_START/ONE_REMAIN_TIME/SELECT_GAME/ONE_RESULT)는 games/rps/types.ts 의 RpsMessageType 참고.
   GAME_RESULT: "GAME_RESULT", // S->C (최종 결과) / 같은 type 으로 C->S 재시작 요청
   RETURN_TO_LOBBY: "RETURN_TO_LOBBY", // S->C (payload 없음) — 로비로 돌아가야 하는 유저에게만 온다
   OPPONENT_JOINED: "OPPONENT_JOINED", // S->C — 재게임 신청 후 새 상대를 기다리던 중, 새 상대가 입장했을 때
   REJOIN_GAME: "REJOIN_GAME", // S->C — ENTER_LOBBY 응답 직후, 게임 도중 끊겼다가 재접속한 유저에게만 온다.
-  RANK_DAILY: "RANK_DAILY", // C->S 요청(payload 없음) / S->C 같은 type 재사용 — 일간 랭킹 상위 10명 + 내 정보
-  RANK_WEEKLY: "RANK_WEEKLY", // C->S 요청(payload 없음) / S->C 같은 type 재사용 — 주간 랭킹 상위 10명 + 내 정보
+  RANK_DAILY: "RANK_DAILY", // C->S 요청({game}) / S->C 같은 type 재사용 — 일간 랭킹 상위 10명 + 내 정보
+  RANK_WEEKLY: "RANK_WEEKLY", // C->S 요청({game}) / S->C 같은 type 재사용 — 주간 랭킹 상위 10명 + 내 정보
   ERROR: "ERROR", // S->C
 
   // 관리자(Watcher) 채널 전용 — 로컬 엑셀 "관리자" 시트 + 서버 소스(server/src/common/types.ts) 기준.
   // ADMIN_LOGIN 은 시트에는 없지만, 로그인 없이는 다른 관리자 메시지를 서버가 전부 무시하므로 필수다.
   ADMIN_LOGIN: "ADMIN_LOGIN", // C->S {id, password} / S->C 같은 type 재사용 {result:"Y"|"N"} — 실패 시 서버가 연결을 끊는다
   ADMIN_CHANNEL_COUNT: "ADMIN_CHANNEL_COUNT", // C->S 요청(payload 없음) / S->C {count: {room_name: 접속자수}}
-  ADMIN_CHANNEL_USER: "ADMIN_CHANNEL_USER", // C->S {lobby:N} 또는 {game:N} / S->C 같은 type 재사용
+  ADMIN_CHANNEL_USER: "ADMIN_CHANNEL_USER", // C->S {game, channel} / S->C 같은 type 재사용
   // C->S(admin.html) {time:{mon,day,start,end}, channel:[...], message} — 응답 없음(발사 후 잊기).
   // ⚠️ 실제 서버는 아직 time 필드를 받지 않는다(엑셀 예시에는 있지만 서버 소스 주석에 "이번 구현 범위에서는
   // 안 받음, 필요하면 별도 논의"라고 되어 있음) — 보내도 무시될 뿐이라 UI 는 남겨두되 동작은 기대하지 말 것.
@@ -97,7 +94,12 @@ export interface NameResultPayload {
   error?: number;
 }
 
-// PLAY_INFO 응답 (S->C, 요청은 payload 없음)
+// PLAY_INFO 로 보내는 값 (C->S). 2026-10-06 서버 변경: 어떤 게임의 정보를 조회할지 game 필드가 추가됐다.
+export interface PlayInfoQuery {
+  game: GameId;
+}
+
+// PLAY_INFO 응답 (S->C, 같은 type 재사용) — 요청한 game 기준의 전적.
 export interface PlayInfoPayload {
   result: "Y" | "N";
   total_game_count: number;
@@ -106,9 +108,19 @@ export interface PlayInfoPayload {
   today_win_count: number;
 }
 
-// JOIN_MATCH 로 보내는 값 (C->S). select:"Y" 는 게임 참여(매칭 대기열 등록), select:"N" 은
+// 로비에서 고를 수 있는 게임. 서버 문서(I11) 기준 식별자 — 가위바위보=rps, 오델로=othello.
+// 오델로는 아직 게임 로직(games/othello 등)이 없어 선택 UI 에서는 비활성화해 둔다.
+export const GameId = {
+  RPS: "rps",
+  OTHELLO: "othello",
+} as const;
+export type GameId = (typeof GameId)[keyof typeof GameId];
+
+// JOIN_MATCH 로 보내는 값 (C->S). 2026-10-02 서버 변경: 로비에서 게임을 선택해 입장하는 방식을
+// 준비하며 game 필드가 추가됐다. select:"Y" 는 게임 참여(매칭 대기열 등록), select:"N" 은
 // 매칭 대기 취소 — 예전에 따로 있던 CANCEL_MATCH 를 대체한다.
 export interface JoinMatchPayload {
+  game: GameId;
   select: "Y" | "N";
 }
 
@@ -194,14 +206,19 @@ export interface MyRankInfo {
   score: number;
 }
 
-// RANK_DAILY 응답 (S->C, 같은 type 재사용, 요청은 payload 없음). 일간 랭킹 상위 10명 + 내 정보.
+// RANK_DAILY/RANK_WEEKLY 로 보내는 값 (C->S). 2026-10-06 서버 변경: 어떤 게임의 랭킹을 조회할지 game 필드가 추가됐다.
+export interface RankQuery {
+  game: GameId;
+}
+
+// RANK_DAILY 응답 (S->C, 같은 type 재사용). 요청한 game 기준 일간 랭킹 상위 10명 + 내 정보.
 export interface RankDailyPayload {
   date: string;
   list: RankEntry[];
   my: MyRankInfo;
 }
 
-// RANK_WEEKLY 응답 (S->C, 같은 type 재사용, 요청은 payload 없음). 주간 랭킹 상위 10명 + 내 정보.
+// RANK_WEEKLY 응답 (S->C, 같은 type 재사용). 요청한 game 기준 주간 랭킹 상위 10명 + 내 정보.
 export interface RankWeeklyPayload {
   term: { start: string; end: string };
   list: RankEntry[];
@@ -211,36 +228,6 @@ export interface RankWeeklyPayload {
 // READY 로 보내는 값 (C->S). 취소할 때는 ready:"N".
 export interface ReadyPayload {
   ready: "Y" | "N";
-}
-
-// ONE_START 로 받는 값 (S->C). count 는 이 판의 선택 제한(초) 값 — 표시는 ONE_REMAIN_TIME 이 대신 맡는다.
-export interface OneStartPayload {
-  count: number;
-}
-
-// ONE_REMAIN_TIME 로 받는 값 (S->C). ONE_START 이후 선택 제한 남은 초를 1초 단위로 전달한다.
-// count 가 0 이면 선택 시간이 끝났다는 신호(그 판은 자동 선택으로 마무리됨).
-export interface OneRemainTimePayload {
-  count: number;
-}
-
-// SELECT_GAME 으로 보내는 값 (C->S)
-export const RpsChoice = {
-  ROCK: "바위",
-  SCISSORS: "가위",
-  PAPER: "보",
-} as const;
-export type RpsChoice = (typeof RpsChoice)[keyof typeof RpsChoice];
-
-export interface SelectGamePayload {
-  select: RpsChoice;
-}
-
-// ONE_RESULT 로 받는 값 (S->C). win 은 승자 userid — 무승부면 서버가 필드 자체를 생략한다.
-export interface OneResultPayload {
-  player1: RpsChoice;
-  player2: RpsChoice;
-  win?: string;
 }
 
 // GAME_RESULT 의 winner/loser — 2026-10-01 서버 변경. player1/player2{개수}+win(승자 userid) 대신
@@ -278,26 +265,36 @@ export interface AdminLoginResultPayload {
   result: "Y" | "N";
 }
 
-// ADMIN_CHANNEL_COUNT 응답 (S->C, 같은 type 재사용, 요청은 payload 없음).
-// count 의 키는 room_name(lobby_1, game_1 등), 값은 그 채널의 현재 접속자 수(CCU).
+// ADMIN_CHANNEL_COUNT 로 보내는 값 (C->S). 2026-10-07 문서 변경: 어떤 게임의 채널 정보를 볼지 game 필드가 추가됐다.
+export interface AdminChannelCountQuery {
+  game: GameId;
+}
+
+// ADMIN_CHANNEL_COUNT 응답 (S->C, 같은 type 재사용) — 요청한 game 을 그대로 돌려준다.
+// count 의 키는 room_name(lobby_1, rps_1 등 — 2026-10-07 게임 채널 이름이 game_N 에서 게임명_N 으로 바뀜),
+// 값은 그 채널의 현재 접속자 수(CCU).
 export interface AdminChannelCountPayload {
+  game: GameId;
   count: Record<string, number>;
 }
 
-// ADMIN_CHANNEL_USER 로 보내는 값 (C->S). lobby 또는 game 중 하나의 채널 번호만 채운다.
+// ADMIN_CHANNEL_USER 로 보내는 값 (C->S). 2026-10-07 문서 변경: 예전 {lobby:N}/{game:N} 대신
+// game(게임 종류) + channel(room_name 형식, 예: "lobby_1") 로 바뀌었다.
+// 문서 G5 는 처음 "lobby1" 이었다가 2026-10-07 "lobby_1"(COUNT 응답 키/SEND_NOTICE channel 과 같은 형식)로 정정됐다.
 export interface AdminChannelUserQuery {
-  lobby?: number;
-  game?: number;
+  game: GameId;
+  channel: string;
 }
 
-// room 은 게임 채널일 때만 채워진다(로비는 방 개념이 없음).
+// room 은 게임 채널일 때만 채워진다(로비는 방 개념이 없음). 문서 예시는 숫자(room:1)라 둘 다 허용한다.
 export interface AdminChannelUserEntry {
   userid: string;
-  room?: string;
+  room?: string | number;
 }
 
-// ADMIN_CHANNEL_USER 응답 (S->C, 같은 type 재사용) — 요청받은 채널(lobby 또는 game)을 그대로 돌려주고
-// user 목록과 total(=user.length)을 채운다.
+// ADMIN_CHANNEL_USER 응답 (S->C, 같은 type 재사용) — 요청받은 game/channel 을 그대로 돌려주고
+// 유저 목록과 total(해당 채널의 유저 전체 숫자)을 채운다.
+// 2026-10-07 문서 C6 가 잠시 목록 키를 `count` 로 적었다가 `user` 로 확정됐다.
 export interface AdminChannelUserResultPayload extends AdminChannelUserQuery {
   user: AdminChannelUserEntry[];
   total: number;
@@ -311,9 +308,10 @@ export interface SendNoticeTime {
   end: string;
 }
 
-// SEND_NOTICE 로 보내는 값 (C->S, 응답 없음 — 발사 후 잊기). channel 은 공지를 받을 채널 이름 목록
-// (예: ["lobby_1","lobby_2","game_1","game_2"]).
+// SEND_NOTICE 로 보내는 값 (C->S, 응답 없음 — 발사 후 잊기). 2026-10-07 문서 변경: game 필드가 추가됐다.
+// channel 은 공지를 받을 채널 이름 목록(예: ["lobby_1","lobby_2","rps_1","rps_2","othello_1"]).
 export interface SendNoticePayload {
+  game: GameId;
   time: SendNoticeTime;
   channel: string[];
   message: string;

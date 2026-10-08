@@ -8,18 +8,21 @@ import type { Scene } from "./Scene";
 import { Button } from "../ui/Button";
 import { NicknamePopup } from "../ui/NicknamePopup";
 import { InfoPopup } from "../ui/InfoPopup";
+import { GameSelect, SELECT_WIDTH } from "../ui/GameSelect";
 import type { LoadingOverlay } from "../ui/LoadingOverlay";
 import type { NoticeBanner } from "../ui/NoticeBanner";
 import { LobbyConnection } from "../network/LobbyConnection";
 import { GetQueryParam } from "../common/urlParams";
-import type {
-  EnterLobbyPayload,
-  EnterLobbyResultPayload,
-  MatchFoundPayload,
-  NameResultPayload,
-  RejoinGamePayload,
-  RankEntry,
-  MyRankInfo,
+import { ParseGameIdFromRoomName } from "../common/channelNames";
+import {
+  GameId,
+  type EnterLobbyPayload,
+  type EnterLobbyResultPayload,
+  type MatchFoundPayload,
+  type NameResultPayload,
+  type RejoinGamePayload,
+  type RankEntry,
+  type MyRankInfo,
 } from "../common/types";
 
 // 통신 규약 문서(계속 갱신됨, 항상 최신 내용을 다시 확인할 것):
@@ -75,12 +78,14 @@ function FormatRankList(list: RankEntry[], my: MyRankInfo): string {
   return lines.join("\n");
 }
 
-// GameScene 이 ENTER_ROOM 응답(player1/player2)에서 내 쪽을 구분할 수 있도록 my_userid 를 넘겨준다.
+// 게임 씬(RpsScene/OthelloScene)이 ENTER_ROOM 응답(player1/player2)에서 내 쪽을 구분할 수 있도록 my_userid 를 넘겨준다.
 // name/avatar/win_per 는 ENTER_ROOM·OPPONENT_JOINED 응답에 이미 들어있어 따로 넘길 방법이 없다.
 export interface GameHandoff {
   room: Room;
+  // 어느 게임의 방인지 — main.ts 가 이 값으로 RpsScene/OthelloScene 중 어느 씬을 만들지 정한다.
+  game: GameId;
   my_userid: string;
-  // REJOIN_GAME 으로 들어온 경우 true — 이미 라운드가 진행 중이므로 GameScene 이 '게임 준비' 버튼을
+  // REJOIN_GAME 으로 들어온 경우 true — 이미 라운드가 진행 중이므로 RpsScene 이 '게임 준비' 버튼을
   // 보여주지 않고 대기 중 표시만 하도록 알려준다.
   is_rejoin: boolean;
 }
@@ -97,6 +102,8 @@ export class LobbyScene implements Scene {
   private readonly status: Text;
   private readonly nickname_popup = new NicknamePopup();
   private readonly info_popup = new InfoPopup();
+  private readonly game_select = new GameSelect();
+  private game_select_hidden_by_popup = false;
   private readonly my_info_button: Button;
   private readonly join_match_button: Button;
   private readonly cancel_match_button: Button;
@@ -148,6 +155,7 @@ export class LobbyScene implements Scene {
 
     this.view.addChild(
       this.status,
+      this.game_select,
       this.my_info_button,
       this.join_match_button,
       this.cancel_match_button,
@@ -157,8 +165,25 @@ export class LobbyScene implements Scene {
       this.info_popup
     );
 
+    // GameSelect 의 HTML <select> 는 캔버스 위에 떠 있어 팝업에 가려지지 않으므로, 팝업이 닫힐 때 복원한다.
+    this.info_popup.on_close = () => {
+      if (this.game_select_hidden_by_popup) {
+        this.game_select_hidden_by_popup = false;
+        this.game_select.Show();
+      }
+    };
+
     // 버튼 없이, 씬이 만들어지면 바로 로비 소켓 접속을 시도한다.
     void this.ConnectToLobby();
+  }
+
+  // 정보 팝업을 띄운다. 이때 보이던 게임 선택 드롭다운은 팝업 위로 올라오지 않게 숨긴다.
+  private ShowInfoPopup(title: string, content: string): void {
+    if (this.game_select.visible) {
+      this.game_select_hidden_by_popup = true;
+      this.game_select.Hide();
+    }
+    this.info_popup.Show(title, content);
   }
 
   public Resize(width: number, _height: number): void {
@@ -166,6 +191,8 @@ export class LobbyScene implements Scene {
 
     this.status.anchor.set(0.5, 0);
     this.status.position.set(center_x, 300);
+
+    this.game_select.position.set(center_x - SELECT_WIDTH / 2, 490);
 
     this.my_info_button.position.set(center_x - this.my_info_button.width / 2, 600);
     this.join_match_button.position.set(center_x - this.join_match_button.width / 2, 710);
@@ -180,6 +207,7 @@ export class LobbyScene implements Scene {
 
   public Destroy(): void {
     this.nickname_popup.DestroyPopup();
+    this.game_select.DestroySelect();
     this.view.destroy({ children: true });
   }
 
@@ -193,11 +221,11 @@ export class LobbyScene implements Scene {
         // 수신 로그는 LobbyConnection 이 항상 남기므로(어떤 메시지든 누락 없이), 여기서는 화면 처리만 한다.
         onEnterLobbyResult: (envelope) => this.HandleEnterLobbyResult(envelope.payload),
         onNameResult: (envelope) => this.HandleNameResult(envelope.payload),
-        onPlayInfo: (envelope) => this.info_popup.Show("내 정보", FormatPayload(envelope.payload)),
+        onPlayInfo: (envelope) => this.ShowInfoPopup("내 정보", FormatPayload(envelope.payload)),
         onRankDaily: (envelope) =>
-          this.info_popup.Show(`일간 랭킹 (${envelope.payload.date})`, FormatRankList(envelope.payload.list, envelope.payload.my)),
+          this.ShowInfoPopup(`일간 랭킹 (${envelope.payload.date})`, FormatRankList(envelope.payload.list, envelope.payload.my)),
         onRankWeekly: (envelope) =>
-          this.info_popup.Show(
+          this.ShowInfoPopup(
             `주간 랭킹 (${envelope.payload.term.start} ~ ${envelope.payload.term.end})`,
             FormatRankList(envelope.payload.list, envelope.payload.my)
           ),
@@ -291,25 +319,29 @@ export class LobbyScene implements Scene {
     this.join_match_button.visible = true;
     this.rank_daily_button.visible = true;
     this.rank_weekly_button.visible = true;
+    this.game_select.Show();
   }
 
   private OnClickRankDaily(): void {
-    this.connection.SendRankDaily();
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "RANK_DAILY" })}`);
+    const payload = { game: this.game_select.GetSelectedGame() };
+    this.connection.SendRankDaily(payload);
+    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "RANK_DAILY", payload })}`);
   }
 
   private OnClickRankWeekly(): void {
-    this.connection.SendRankWeekly();
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "RANK_WEEKLY" })}`);
+    const payload = { game: this.game_select.GetSelectedGame() };
+    this.connection.SendRankWeekly(payload);
+    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "RANK_WEEKLY", payload })}`);
   }
 
   private OnClickMyInfo(): void {
-    this.connection.SendPlayInfo();
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "PLAY_INFO" })}`);
+    const payload = { game: this.game_select.GetSelectedGame() };
+    this.connection.SendPlayInfo(payload);
+    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "PLAY_INFO", payload })}`);
   }
 
   private OnClickJoinMatch(): void {
-    const payload = { select: "Y" as const };
+    const payload = { game: this.game_select.GetSelectedGame(), select: "Y" as const };
     this.connection.SendJoinMatch(payload);
     console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "JOIN_MATCH", payload })}`);
     // MATCH_FOUND 는 다른 유저가 매칭될 때까지 즉시 오지 않으므로, 그때까지 취소할 수 있게 한다.
@@ -319,7 +351,7 @@ export class LobbyScene implements Scene {
   }
 
   private OnClickCancelMatch(): void {
-    const payload = { select: "N" as const };
+    const payload = { game: this.game_select.GetSelectedGame(), select: "N" as const };
     this.connection.SendJoinMatch(payload);
     console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "JOIN_MATCH", payload })}`);
     this.SetStatus("매칭을 취소했습니다.");
@@ -348,7 +380,9 @@ export class LobbyScene implements Scene {
     try {
       const game_room = await this.connection.ConsumeMatchSeat(payload.seat_reservation);
       console.log(`${LOG_TAG} 게임 채널 접속 완료 roomId=${game_room.roomId} sessionId=${game_room.sessionId}`);
-      this.options.onGameRoomReady({ room: game_room, my_userid: this.my_userid, is_rejoin: false });
+      // 게임 종류는 방 이름(othello_1 등)이 가장 정확하다. 못 뽑으면 내가 로비에서 선택해 둔 게임을 쓴다.
+      const game = ParseGameIdFromRoomName(payload.room_name) ?? this.game_select.GetSelectedGame();
+      this.options.onGameRoomReady({ room: game_room, game, my_userid: this.my_userid, is_rejoin: false });
     } catch (error) {
       console.error(`${LOG_TAG} 게임 채널 접속 실패 ${error instanceof Error ? error.message : String(error)}`);
       this.options.loading_overlay.Hide();
@@ -366,7 +400,9 @@ export class LobbyScene implements Scene {
     try {
       const game_room = await this.connection.ConsumeRejoinToken(payload);
       console.log(`${LOG_TAG} 게임 채널 재접속 완료 roomId=${game_room.roomId} sessionId=${game_room.sessionId}`);
-      this.options.onGameRoomReady({ room: game_room, my_userid: this.my_userid, is_rejoin: true });
+      // 재접속은 로비에서 게임을 고른 적이 없으므로 방 이름으로만 게임을 알 수 있다(못 뽑으면 가위바위보로 본다).
+      const game = ParseGameIdFromRoomName(payload.room_name) ?? GameId.RPS;
+      this.options.onGameRoomReady({ room: game_room, game, my_userid: this.my_userid, is_rejoin: true });
     } catch (error) {
       console.error(`${LOG_TAG} 게임 채널 재접속 실패 ${error instanceof Error ? error.message : String(error)}`);
       this.options.loading_overlay.Hide();
@@ -384,6 +420,7 @@ export class LobbyScene implements Scene {
       this.cancel_match_button.visible = false;
       this.rank_daily_button.visible = false;
       this.rank_weekly_button.visible = false;
+      this.game_select.Hide();
       this.status.visible = true;
       void this.ConnectToLobby();
     }

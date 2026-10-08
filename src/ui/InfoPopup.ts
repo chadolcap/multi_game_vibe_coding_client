@@ -15,6 +15,8 @@ export class InfoPopup extends Container {
   private readonly title: Text;
   private readonly content: Text;
   private readonly close_button: Button;
+  // 팝업이 닫힐 때 호출된다(HTML 오버레이처럼 캔버스 위에 떠 있는 요소를 복원하는 용도).
+  public on_close?: () => void;
 
   constructor() {
     super();
@@ -64,5 +66,6 @@ export class InfoPopup extends Container {
 
   public Hide(): void {
     this.visible = false;
+    this.on_close?.();
   }
 }

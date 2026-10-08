@@ -42,6 +42,10 @@ export class Button extends Container {
     this.on("pointertap", () => this.enabled_ && options.onClick());
   }
 
+  public SetLabel(label: string): void {
+    this.text.text = label;
+  }
+
   public SetEnabled(enabled: boolean): void {
     this.enabled_ = enabled;
     this.eventMode = enabled ? "static" : "none";

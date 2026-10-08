@@ -85,6 +85,12 @@
     </section>
 
     <section id="main-section" hidden>
+      <h2>게임 선택</h2>
+      <select id="game-select">
+        <option value="rps">가위바위보</option>
+        <option value="othello">오델로</option>
+      </select>
+
       <h2>전체 채널 정보</h2>
       <button id="channel-count-button">전체 채널 정보 조회</button>
       <table>
@@ -100,7 +106,7 @@
       <h2>특정 채널 유저 정보</h2>
       <select id="channel-type-select">
         <option value="lobby">lobby</option>
-        <option value="game">game</option>
+        <option value="game">게임 채널 (위에서 선택한 게임)</option>
       </select>
       <input id="channel-no-input" type="number" min="1" value="1" style="width: 60px" />
       <button id="channel-user-button">채널 유저 정보 조회</button>
@@ -125,8 +131,9 @@
         <span>보낼 채널:</span>
         <label><input type="checkbox" class="notice-channel" value="lobby_1" checked /> lobby_1</label>
         <label><input type="checkbox" class="notice-channel" value="lobby_2" checked /> lobby_2</label>
-        <label><input type="checkbox" class="notice-channel" value="game_1" checked /> game_1</label>
-        <label><input type="checkbox" class="notice-channel" value="game_2" checked /> game_2</label>
+        <label><input type="checkbox" class="notice-channel" value="rps_1" checked /> rps_1</label>
+        <label><input type="checkbox" class="notice-channel" value="rps_2" checked /> rps_2</label>
+        <label><input type="checkbox" class="notice-channel" value="othello_1" checked /> othello_1</label>
       </div>
       <div class="field-row">
         <textarea id="notice-message" rows="3" placeholder="공지 내용을 입력하세요"></textarea>

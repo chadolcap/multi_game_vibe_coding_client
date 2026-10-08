@@ -1,4 +1,4 @@
-// ONE_RESULT 를 알리는 팝업 — 승/패/무승부를 잠깐 보여주고 자동으로 사라진다(타이머는 GameScene 이 관리).
+// ONE_RESULT 를 알리는 팝업 — 승/패/무승부를 잠깐 보여주고 자동으로 사라진다(타이머는 RpsScene 이 관리).
 import { Container, Graphics, Text } from "pixi.js";
 import { GAME_WIDTH, GAME_HEIGHT } from "../config";
 

@@ -13,12 +13,14 @@ import {
   type NamePayload,
   type NameResultPayload,
   type PlayInfoPayload,
+  type PlayInfoQuery,
   type MatchFoundPayload,
   type JoinMatchPayload,
   type JoinMatchResultPayload,
   type SeatReservation,
   type RejoinGamePayload,
   type NoticePayload,
+  type RankQuery,
   type RankDailyPayload,
   type RankWeeklyPayload,
 } from "../common/types";
@@ -181,22 +183,22 @@ export class LobbyConnection {
     return await this.client.reconnect(payload.reconnection_token);
   }
 
-  // 내 정보 조회 요청 (payload 없음).
-  public SendPlayInfo(): void {
+  // 내 정보 조회 요청 — 어떤 게임의 전적을 볼지 game 으로 지정한다.
+  public SendPlayInfo(payload: PlayInfoQuery): void {
     if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
-    this.room.send(MessageType.PLAY_INFO);
+    this.room.send(MessageType.PLAY_INFO, payload);
   }
 
-  // 일간 랭킹 요청 (payload 없음).
-  public SendRankDaily(): void {
+  // 일간 랭킹 요청 — 어떤 게임의 랭킹을 볼지 game 으로 지정한다.
+  public SendRankDaily(payload: RankQuery): void {
     if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
-    this.room.send(MessageType.RANK_DAILY);
+    this.room.send(MessageType.RANK_DAILY, payload);
   }
 
-  // 주간 랭킹 요청 (payload 없음).
-  public SendRankWeekly(): void {
+  // 주간 랭킹 요청 — 어떤 게임의 랭킹을 볼지 game 으로 지정한다.
+  public SendRankWeekly(payload: RankQuery): void {
     if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
-    this.room.send(MessageType.RANK_WEEKLY);
+    this.room.send(MessageType.RANK_WEEKLY, payload);
   }
 
   public IsConnected(): boolean {

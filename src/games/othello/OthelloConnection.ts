@@ -1,4 +1,4 @@
-// 게임 채널(방) 접속 담당. LobbyConnection 과 같은 방식으로 Room 을 감싼다.
+// 오델로 게임 채널(방) 접속 담당. RpsConnection 과 같은 방식으로 Room 을 감싼다.
 // 이 Room 은 LobbyConnection.ConsumeMatchSeat() 이 이미 만들어 준 것을 그대로 받아 쓴다.
 
 import type { Room } from "@colyseus/sdk";
@@ -8,15 +8,21 @@ import {
   type EnterRoomPayload,
   type OutUserPayload,
   type ReadyPayload,
-  type OneStartPayload,
-  type OneRemainTimePayload,
-  type SelectGamePayload,
-  type OneResultPayload,
-  type GameResultPayload,
   type GameResultReplayPayload,
   type OpponentJoinedPayload,
   type NoticePayload,
-} from "../common/types";
+} from "../../common/types";
+import {
+  OthelloMessageType,
+  type OthelloDollSelectPayload,
+  type OthelloDollSelectResultPayload,
+  type OthelloRemainTimePayload,
+  type OthelloTurnStartPayload,
+  type OthelloSelectGamePayload,
+  type OthelloSelectGameResultPayload,
+  type OthelloGameStatusPayload,
+  type OthelloGameResultPayload,
+} from "./types";
 
 const LOG_TAG = "[Game]";
 
@@ -25,14 +31,17 @@ function LogReceived(type: string | number, message: unknown): void {
   console.log(`${LOG_TAG} 서버에서 받은 내용 type=${String(type)} ${JSON.stringify(message)}`);
 }
 
-export interface GameEventHandlers {
+export interface OthelloEventHandlers {
   onEnterRoom?: (envelope: Envelope<EnterRoomPayload>) => void;
   onOutUser?: (envelope: Envelope<OutUserPayload>) => void;
   onGameStart?: () => void;
-  onOneStart?: (envelope: Envelope<OneStartPayload>) => void;
-  onOneRemainTime?: (envelope: Envelope<OneRemainTimePayload>) => void;
-  onOneResult?: (envelope: Envelope<OneResultPayload>) => void;
-  onGameResult?: (envelope: Envelope<GameResultPayload>) => void;
+  onDollSelectRemainTime?: (envelope: Envelope<OthelloRemainTimePayload>) => void;
+  onDollSelectResult?: (envelope: Envelope<OthelloDollSelectResultPayload>) => void;
+  onTurnStart?: (envelope: Envelope<OthelloTurnStartPayload>) => void;
+  onTurnRemainTime?: (envelope: Envelope<OthelloRemainTimePayload>) => void;
+  onSelectGameResult?: (envelope: Envelope<OthelloSelectGameResultPayload>) => void;
+  onGameStatus?: (envelope: Envelope<OthelloGameStatusPayload>) => void;
+  onGameResult?: (envelope: Envelope<OthelloGameResultPayload>) => void;
   // GAME_RESULT 에서 나가기를 선택한(또는 선택 시간을 넘긴) 유저에게만 온다 (payload 없음).
   onReturnToLobby?: () => void;
   // 재게임 신청 후 새 상대를 기다리던 중, 새 상대가 입장했을 때 온다.
@@ -44,14 +53,14 @@ export interface GameEventHandlers {
   onLeave?: (code?: number) => void;
 }
 
-export class GameConnection {
+export class OthelloConnection {
   private readonly room: Room;
 
   constructor(room: Room) {
     this.room = room;
   }
 
-  public Listen(handlers: GameEventHandlers): void {
+  public Listen(handlers: OthelloEventHandlers): void {
     this.room.onMessage(MessageType.ENTER_ROOM, (envelope: Envelope<EnterRoomPayload>) => {
       LogReceived(MessageType.ENTER_ROOM, envelope);
       handlers.onEnterRoom?.(envelope);
@@ -64,19 +73,31 @@ export class GameConnection {
       LogReceived(MessageType.GAME_START, envelope);
       handlers.onGameStart?.();
     });
-    this.room.onMessage(MessageType.ONE_START, (envelope: Envelope<OneStartPayload>) => {
-      LogReceived(MessageType.ONE_START, envelope);
-      handlers.onOneStart?.(envelope);
+    this.room.onMessage(OthelloMessageType.DOLL_SELECT_REMAIN_TIME, (envelope: Envelope<OthelloRemainTimePayload>) => {
+      LogReceived(OthelloMessageType.DOLL_SELECT_REMAIN_TIME, envelope);
+      handlers.onDollSelectRemainTime?.(envelope);
     });
-    this.room.onMessage(MessageType.ONE_REMAIN_TIME, (envelope: Envelope<OneRemainTimePayload>) => {
-      LogReceived(MessageType.ONE_REMAIN_TIME, envelope);
-      handlers.onOneRemainTime?.(envelope);
+    this.room.onMessage(OthelloMessageType.DOLL_SELECT, (envelope: Envelope<OthelloDollSelectResultPayload>) => {
+      LogReceived(OthelloMessageType.DOLL_SELECT, envelope);
+      handlers.onDollSelectResult?.(envelope);
     });
-    this.room.onMessage(MessageType.ONE_RESULT, (envelope: Envelope<OneResultPayload>) => {
-      LogReceived(MessageType.ONE_RESULT, envelope);
-      handlers.onOneResult?.(envelope);
+    this.room.onMessage(OthelloMessageType.TURN_START, (envelope: Envelope<OthelloTurnStartPayload>) => {
+      LogReceived(OthelloMessageType.TURN_START, envelope);
+      handlers.onTurnStart?.(envelope);
     });
-    this.room.onMessage(MessageType.GAME_RESULT, (envelope: Envelope<GameResultPayload>) => {
+    this.room.onMessage(OthelloMessageType.TURN_REMAIN_TIME, (envelope: Envelope<OthelloRemainTimePayload>) => {
+      LogReceived(OthelloMessageType.TURN_REMAIN_TIME, envelope);
+      handlers.onTurnRemainTime?.(envelope);
+    });
+    this.room.onMessage(OthelloMessageType.SELECT_GAME, (envelope: Envelope<OthelloSelectGameResultPayload>) => {
+      LogReceived(OthelloMessageType.SELECT_GAME, envelope);
+      handlers.onSelectGameResult?.(envelope);
+    });
+    this.room.onMessage(OthelloMessageType.GAME_STATUS, (envelope: Envelope<OthelloGameStatusPayload>) => {
+      LogReceived(OthelloMessageType.GAME_STATUS, envelope);
+      handlers.onGameStatus?.(envelope);
+    });
+    this.room.onMessage(MessageType.GAME_RESULT, (envelope: Envelope<OthelloGameResultPayload>) => {
       LogReceived(MessageType.GAME_RESULT, envelope);
       handlers.onGameResult?.(envelope);
     });
@@ -113,9 +134,14 @@ export class GameConnection {
     this.room.send(MessageType.READY, payload);
   }
 
-  // 가위/바위/보 선택 제출.
-  public SendSelectGame(payload: SelectGamePayload): void {
-    this.room.send(MessageType.SELECT_GAME, payload);
+  // 돌 색 선택 (0=흰색, 1=검정).
+  public SendDollSelect(payload: OthelloDollSelectPayload): void {
+    this.room.send(OthelloMessageType.DOLL_SELECT, payload);
+  }
+
+  // 돌을 놓을 자리 제출.
+  public SendSelectGame(payload: OthelloSelectGamePayload): void {
+    this.room.send(OthelloMessageType.SELECT_GAME, payload);
   }
 
   // 최종 결과 후 재시작/나가기 선택 (같은 type 을 재사용한다).
