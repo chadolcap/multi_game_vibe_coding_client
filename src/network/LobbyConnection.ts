@@ -67,9 +67,14 @@ export interface ConnectResult {
 export class LobbyConnection {
   private client: Client | null = null;
   private room: Room | null = null;
+  // 씬 콜백. Dispose() 후에는 null 이 되어, 늦게 도착한 메시지/종료 이벤트는 로그만 남고 파괴된 씬을 건드리지 않는다.
+  // 재접속 시 Connect() 가 다시 불리면 새 핸들러로 교체된다.
+  private handlers: LobbyEventHandlers | null = null;
+  private disposed = false;
 
   // 로비 채널 2개 중 하나를 랜덤하게 골라 접속한다 (CLAUDE.md 규모 스펙).
   public async Connect(handlers: LobbyEventHandlers): Promise<ConnectResult> {
+    if (!this.disposed) this.handlers = handlers;
     const channel_no = Math.floor(Math.random() * NETWORK_CONFIG.lobby_ports.length) + 1;
     const port = NETWORK_CONFIG.lobby_ports[channel_no - 1];
     const protocol = NETWORK_CONFIG.use_tls ? "wss" : "ws";
@@ -85,53 +90,53 @@ export class LobbyConnection {
 
     this.room.onMessage(MessageType.ENTER_LOBBY, (envelope: Envelope<EnterLobbyResultPayload>) => {
       LogReceived(MessageType.ENTER_LOBBY, envelope);
-      handlers.onEnterLobbyResult?.(envelope);
+      this.handlers?.onEnterLobbyResult?.(envelope);
     });
     this.room.onMessage(MessageType.NAME, (envelope: Envelope<NameResultPayload>) => {
       LogReceived(MessageType.NAME, envelope);
-      handlers.onNameResult?.(envelope);
+      this.handlers?.onNameResult?.(envelope);
     });
     this.room.onMessage(MessageType.PLAY_INFO, (envelope: Envelope<PlayInfoPayload>) => {
       LogReceived(MessageType.PLAY_INFO, envelope);
-      handlers.onPlayInfo?.(envelope);
+      this.handlers?.onPlayInfo?.(envelope);
     });
     this.room.onMessage(MessageType.JOIN_MATCH, (envelope: Envelope<JoinMatchResultPayload>) => {
       LogReceived(MessageType.JOIN_MATCH, envelope);
-      handlers.onJoinMatchResult?.(envelope);
+      this.handlers?.onJoinMatchResult?.(envelope);
     });
     this.room.onMessage(MessageType.MATCH_FOUND, (envelope: Envelope<MatchFoundPayload>) => {
       LogReceived(MessageType.MATCH_FOUND, envelope);
-      handlers.onMatchFound?.(envelope);
+      this.handlers?.onMatchFound?.(envelope);
     });
     this.room.onMessage(MessageType.REJOIN_GAME, (envelope: Envelope<RejoinGamePayload>) => {
       LogReceived(MessageType.REJOIN_GAME, envelope);
-      handlers.onRejoinGame?.(envelope);
+      this.handlers?.onRejoinGame?.(envelope);
     });
     this.room.onMessage(MessageType.RANK_DAILY, (envelope: Envelope<RankDailyPayload>) => {
       LogReceived(MessageType.RANK_DAILY, envelope);
-      handlers.onRankDaily?.(envelope);
+      this.handlers?.onRankDaily?.(envelope);
     });
     this.room.onMessage(MessageType.RANK_WEEKLY, (envelope: Envelope<RankWeeklyPayload>) => {
       LogReceived(MessageType.RANK_WEEKLY, envelope);
-      handlers.onRankWeekly?.(envelope);
+      this.handlers?.onRankWeekly?.(envelope);
     });
     this.room.onMessage(MessageType.ERROR, (envelope: Envelope<ErrorPayload>) => {
       LogReceived(MessageType.ERROR, envelope);
-      handlers.onError?.(envelope);
+      this.handlers?.onError?.(envelope);
     });
     this.room.onMessage(MessageType.SEND_NOTICE, (envelope: Envelope<NoticePayload>) => {
       LogReceived(MessageType.SEND_NOTICE, envelope);
-      handlers.onNotice?.(envelope);
+      this.handlers?.onNotice?.(envelope);
     });
     // 위에서 명시적으로 등록하지 않은 타입은 여기로 온다 (colyseus: 전용 핸들러가 없을 때만 호출됨).
     // 앞으로 서버가 새 메시지 타입을 추가해도 씬 코드를 고치기 전까지는 최소한 여기서 로그는 남는다.
     this.room.onMessage("*", (type: string | number, message: unknown) => {
       LogReceived(type, message);
-      handlers.onUnhandledMessage?.(type, message);
+      this.handlers?.onUnhandledMessage?.(type, message);
     });
     this.room.onLeave((code) => {
       this.room = null;
-      handlers.onLeave?.(code);
+      this.handlers?.onLeave?.(code);
     });
 
     return {
@@ -199,6 +204,12 @@ export class LobbyConnection {
   public SendRankWeekly(payload: RankQuery): void {
     if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
     this.room.send(MessageType.RANK_WEEKLY, payload);
+  }
+
+  // 씬이 파괴될 때 호출한다 — 콜백만 끊는다. 로비 연결은 매칭 성사 시 서버가 스스로 끊으므로 여기서 닫지 않는다.
+  public Dispose(): void {
+    this.disposed = true;
+    this.handlers = null;
   }
 
   public IsConnected(): boolean {

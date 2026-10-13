@@ -15,6 +15,8 @@ body {
 #app {
   width: 100vw;
   height: 100vh;
+  /* 모바일 브라우저는 100vh 가 주소창을 뺀 실제 높이(window.innerHeight)보다 커서 캔버스가 밀리거나 잘린다. */
+  height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;

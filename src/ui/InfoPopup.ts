@@ -4,11 +4,11 @@ import { Button } from "./Button";
 import { GAME_WIDTH, GAME_HEIGHT } from "../config";
 
 const PANEL_WIDTH = 600;
-const PANEL_HEIGHT = 560;
+const PANEL_HEIGHT = 760; // 글자를 키운 만큼 랭킹 목록이 들어갈 세로 공간을 늘림
 const PANEL_X = (GAME_WIDTH - PANEL_WIDTH) / 2;
 const PANEL_Y = (GAME_HEIGHT - PANEL_HEIGHT) / 2;
 const CONTENT_X = PANEL_X + 40;
-const CONTENT_Y = PANEL_Y + 100;
+const CONTENT_Y = PANEL_Y + 110;
 const CONTENT_WIDTH = PANEL_WIDTH - 80;
 
 export class InfoPopup extends Container {
@@ -29,7 +29,7 @@ export class InfoPopup extends Container {
 
     this.title = new Text({
       text: "정보",
-      style: { fill: 0xffffff, fontSize: 28, fontFamily: "sans-serif", fontWeight: "bold" },
+      style: { fill: 0xffffff, fontSize: 34, fontFamily: "sans-serif", fontWeight: "bold" },
     });
     this.title.anchor.set(0.5, 0);
     this.title.position.set(GAME_WIDTH / 2, PANEL_Y + 32);
@@ -38,11 +38,12 @@ export class InfoPopup extends Container {
       text: "",
       style: {
         fill: 0xeaeaea,
-        fontSize: 17,
+        fontSize: 24,
         fontFamily: "monospace",
+        fontWeight: "bold",
         wordWrap: true,
         wordWrapWidth: CONTENT_WIDTH,
-        lineHeight: 26,
+        lineHeight: 36,
       },
     });
     this.content.position.set(CONTENT_X, CONTENT_Y);

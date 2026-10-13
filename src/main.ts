@@ -62,10 +62,12 @@ async function Main(): Promise<void> {
     scene_manager.ChangeScene(game_scene);
   }
 
-  GoToLobby();
-
+  // 캔버스 배율 조정 리스너는 씬보다 먼저 등록해야 한다. HTML 오버레이(GameSelect/NicknamePopup)도 resize 때
+  // 캔버스 크기를 읽어 위치를 맞추는데, 리스너는 등록 순서대로 실행되므로 이게 나중이면 바뀌기 전 크기를 읽는다.
   FitCanvasToWindow(app.canvas);
   window.addEventListener("resize", () => FitCanvasToWindow(app.canvas));
+
+  GoToLobby();
 }
 
 Main();

@@ -68,6 +68,8 @@ src/ui/              Button, InfoPopup, GameResultPopup, GameStartBanner, RoundR
 - 로그 태그(`[Game]`)는 게임별 Connection 에서도 그대로 쓴다.
 
 - 모든 서버 수신 메시지는 `network/*Connection.ts`(게임 채널은 `games/*/*Connection.ts`)의 `LogReceived()`를 거쳐 `[Lobby]`/`[Game]`/`[Admin]` 태그로 콘솔에 무조건 로그된다. 각 Connection은 명시적으로 등록된 타입 외에 wildcard(`"*"`) 핸들러도 등록해 두어, 서버가 새 메시지 타입을 추가해도 최소한 로그는 남는다. **씬 코드에는 로깅을 추가하지 않는다** — 이미 Connection 계층에서 처리된다.
+- 각 Connection은 씬 콜백을 `handlers` 필드로 들고 있고, 씬의 `Destroy()`가 `connection.Dispose()`로 이를 끊는다. 연결 자체는
+  닫지 않으므로(게임 씬의 '로비로 돌아가기'는 방을 나가지 않음) 파괴 후 도착한 메시지는 로그만 남고 씬에는 전달되지 않는다.
 - 화면은 디자인 해상도 720×1280(`config.ts`의 `GAME_WIDTH`/`GAME_HEIGHT`)로 고정하고, `main.ts`의 `FitCanvasToWindow()`가 CSS로만 배율을 조정한다. 좌표 계산은 항상 720×1280 기준으로 한다.
 - 예외: `admin.html`은 이 Pixi 앱과 별개의 진입점이라 Scene 이 없다. `WatcherConnection.ts`는 같은 Connection 패턴을 따르지만, `src/admin.ts`가 Scene 대신 순수 DOM으로 직접 화면을 그린다 (아래 "관리자(Watcher) 페이지" 참고).
 
@@ -76,6 +78,19 @@ src/ui/              Button, InfoPopup, GameResultPopup, GameStartBanner, RoundR
 ### 씬 전환 (`SceneManager`)
 
 한 번에 씬 하나만 유지(`ChangeScene()`이 이전 씬을 `Destroy()`). `LoadingOverlay`(로딩 스피너)와 `NoticeBanner`(관리자 공지 배너, `SEND_NOTICE` 수신 시 표시)처럼 씬이 바뀌어도 항상 최상단에 남아야 하는 것은 `overlays`로 별도 등록한다. `main.ts`의 `GoToLobby()`(인자 없음 — 호출될 때마다 새 `LobbyScene`이 뜨자마자 스스로 로비 소켓에 자동 접속한다. "로비 접속" 버튼은 없음) 클로저가 로비 ↔ 게임 씬 전환의 유일한 경로다.
+
+### 서버 연결 끊김 처리
+
+로비 접속 실패/끊김(`LobbyScene`)과 게임 채널의 예기치 않은 끊김(`RpsScene`/`OthelloScene`의 `HandleLeave`)은 모두
+`ui/ConnectionLostPopup`(모달, 버튼 하나)으로 알린다. 로비에서는 `로비로 접속` 버튼이 로비 소켓에 다시 접속하고(실패하면
+팝업이 다시 뜬다), 게임 씬에서는 같은 이름의 버튼이 `GoToLobbyOnce()`로 새 로비 씬을 띄운다. 로비의 별명 입력/게임 선택은
+HTML 오버레이라 팝업에 가려지지 않으므로 팝업을 띄울 때 먼저 숨긴다(`LobbyScene.ShowConnectionLost()`).
+
+- **로비 채널**: `CONSENTED(4000)`는 매칭 성사(`MATCH_FOUND`)/재접속(`REJOIN_GAME`) 후 서버가 스스로 끊는 정상 흐름이라
+  팝업을 띄우지 않는다. 그 뒤 게임 채널 접속까지 실패하면 로비 연결이 이미 없으므로 로비부터 다시 접속한다.
+- **게임 채널**: 서버가 꺼질 때도 `CONSENTED(4000)`로 끊길 수 있어 **종료 코드로는 정상 종료를 판단하지 않는다.**
+  정상 종료는 내가 나가기를 눌렀거나(`exit_requested`) `RETURN_TO_LOBBY`를 받은 경우(`returned_to_lobby`)뿐이고,
+  그 외 모든 끊김은 코드와 관계없이 팝업을 띄운다.
 
 ### 로비 → 게임 채널 전환 (Colyseus 매치메이킹)
 

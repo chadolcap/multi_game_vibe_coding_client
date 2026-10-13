@@ -3,13 +3,14 @@
 // 준비가 끝나면 GAME_START -> 돌 색 선택(DOLL_SELECT) -> (TURN_START -> 착수(SELECT_GAME)) 반복 -> GAME_RESULT 순으로 진행한다.
 // 방 입장/퇴장/재시작 흐름은 RpsScene 과 같고, 돌 색 선택과 턴 진행만 오델로 전용이다.
 import { Container, Text } from "pixi.js";
-import { CloseCode, type Room } from "@colyseus/sdk";
+import type { Room } from "@colyseus/sdk";
 import type { Scene } from "../../scenes/Scene";
 import { Button } from "../../ui/Button";
 import { PlayerPanel, AVATAR_SIZE } from "../../ui/PlayerPanel";
 import { GameResultPopup } from "../../ui/GameResultPopup";
 import { GameStartBanner } from "../../ui/GameStartBanner";
 import type { NoticeBanner } from "../../ui/NoticeBanner";
+import { ConnectionLostPopup } from "../../ui/ConnectionLostPopup";
 import { OthelloBoard, OTHELLO_BOARD_PIXEL_SIZE } from "./OthelloBoard";
 import { OthelloColorPanel, OTHELLO_COLOR_PANEL_WIDTH } from "./OthelloColorPanel";
 import { OthelloConnection } from "./OthelloConnection";
@@ -36,6 +37,8 @@ const WAITING_PANEL_ALPHA = 0.55;
 // 오토모드에서 내 차례가 되고 나서 자동으로 착수하기까지의 지연. 곧바로 두면 상대 착수 직후 화면이 확 바뀌어
 // 어색하고, 서버가 TURN_START 직후 보내는 TURN_REMAIN_TIME 보다 먼저 응답하게 되므로 잠깐 둔다.
 const AUTO_PLAY_DELAY_MS = 1000;
+// TURN_REMAIN_TIME 카운트다운은 이 값 이하일 때만 화면에 표기한다.
+const TURN_COUNTDOWN_VISIBLE_SEC = 5;
 
 export interface OthelloSceneOptions {
   room: Room;
@@ -66,6 +69,8 @@ export class OthelloScene implements Scene {
   private readonly game_start_banner = new GameStartBanner();
   private readonly result_popup: GameResultPopup;
   private readonly back_to_lobby_button: Button;
+  // 서버가 꺼졌거나 연결이 예기치 않게 끊겼을 때 — 버튼으로 로비에 접속하게 유도한다.
+  private readonly connection_lost_popup: ConnectionLostPopup;
   private readonly connection: OthelloConnection;
   private readonly options: OthelloSceneOptions;
   // DOLL_SELECT 결과로 정해지는 내 돌 색. 판이 시작될 때마다 비워진다. 재접속(REJOIN_GAME)한 경우에는
@@ -163,6 +168,11 @@ export class OthelloScene implements Scene {
     });
     this.back_to_lobby_button.visible = false;
 
+    this.connection_lost_popup = new ConnectionLostPopup({
+      button_label: "로비로 접속",
+      onConfirm: () => this.GoToLobbyOnce(),
+    });
+
     this.view.addChild(
       this.opponent_panel,
       this.my_panel,
@@ -177,7 +187,8 @@ export class OthelloScene implements Scene {
       this.auto_mode_button,
       this.result_popup,
       this.back_to_lobby_button,
-      this.game_start_banner
+      this.game_start_banner,
+      this.connection_lost_popup
     );
     this.UpdateScore();
 
@@ -222,6 +233,8 @@ export class OthelloScene implements Scene {
   }
 
   public Destroy(): void {
+    // '로비로 돌아가기'는 방을 나가지 않고 화면만 바꾸므로, 이후 오는 게임 채널 메시지가 파괴된 씬을 건드리지 않게 콜백을 끊는다.
+    this.connection.Dispose();
     if (this.banner_timer) clearTimeout(this.banner_timer);
     this.CancelAutoPlay();
     this.view.destroy({ children: true });
@@ -457,7 +470,8 @@ export class OthelloScene implements Scene {
   }
 
   private HandleTurnRemainTime(payload: OthelloRemainTimePayload): void {
-    this.countdown_text.text = `${payload.count}초`;
+    // 턴 남은 시간은 5초 이하일 때만 표기한다(10~6초는 비움).
+    this.countdown_text.text = payload.count <= TURN_COUNTDOWN_VISIBLE_SEC ? `${payload.count}초` : "";
   }
 
   private OnSelectPoint(point: OthelloPoint): void {
@@ -547,19 +561,26 @@ export class OthelloScene implements Scene {
   private HandleLeave(code?: number): void {
     if (this.returned_to_lobby) return;
 
-    if (this.exit_requested || code === CloseCode.CONSENTED) {
+    // 서버 종료 시에도 CONSENTED 코드로 끊길 수 있어, 코드만으로 정상 종료로 보지 않는다.
+    // 정상 종료는 내가 나가기를 눌렀거나(exit_requested) RETURN_TO_LOBBY 를 받은 경우(returned_to_lobby)뿐이다.
+    if (this.exit_requested) {
       this.GoToLobbyOnce();
       return;
     }
 
     this.status.text = `게임 채널 연결이 끊어졌습니다 (code=${code ?? "-"}). 서버 쪽 문제일 수 있습니다.`;
+    this.connection_lost_popup.Show(
+      `게임 서버와의 연결이 끊어졌습니다. (code=${code ?? "-"})
+서버가 꺼졌거나 네트워크가 불안정할 수 있습니다.
+로비로 다시 접속해 주세요.`
+    );
     this.ready_button.visible = false;
     this.StopPlayUi();
     this.result_popup.Hide();
     this.back_to_lobby_button.visible = true;
   }
 
-  // RETURN_TO_LOBBY, onLeave(CONSENTED), '로비로 돌아가기' 버튼 중 무엇이 먼저 오든 한 번만 전환한다.
+  // RETURN_TO_LOBBY, onLeave(나가기 요청 후), '로비로 돌아가기'/'로비로 접속' 버튼 중 무엇이 먼저 오든 한 번만 전환한다.
   private GoToLobbyOnce(): void {
     if (this.returned_to_lobby) return;
     this.returned_to_lobby = true;

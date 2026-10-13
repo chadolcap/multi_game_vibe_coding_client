@@ -55,73 +55,84 @@ export interface OthelloEventHandlers {
 
 export class OthelloConnection {
   private readonly room: Room;
+  // 씬 콜백. Dispose() 후에는 null 이 되어, 늦게 도착한 메시지는 로그만 남고 파괴된 씬을 건드리지 않는다.
+  private handlers: OthelloEventHandlers | null = null;
+  private disposed = false;
 
   constructor(room: Room) {
     this.room = room;
   }
 
   public Listen(handlers: OthelloEventHandlers): void {
+    if (this.disposed) return;
+    this.handlers = handlers;
     this.room.onMessage(MessageType.ENTER_ROOM, (envelope: Envelope<EnterRoomPayload>) => {
       LogReceived(MessageType.ENTER_ROOM, envelope);
-      handlers.onEnterRoom?.(envelope);
+      this.handlers?.onEnterRoom?.(envelope);
     });
     this.room.onMessage(MessageType.OUT_USER, (envelope: Envelope<OutUserPayload>) => {
       LogReceived(MessageType.OUT_USER, envelope);
-      handlers.onOutUser?.(envelope);
+      this.handlers?.onOutUser?.(envelope);
     });
     this.room.onMessage(MessageType.GAME_START, (envelope: Envelope<unknown>) => {
       LogReceived(MessageType.GAME_START, envelope);
-      handlers.onGameStart?.();
+      this.handlers?.onGameStart?.();
     });
     this.room.onMessage(OthelloMessageType.DOLL_SELECT_REMAIN_TIME, (envelope: Envelope<OthelloRemainTimePayload>) => {
       LogReceived(OthelloMessageType.DOLL_SELECT_REMAIN_TIME, envelope);
-      handlers.onDollSelectRemainTime?.(envelope);
+      this.handlers?.onDollSelectRemainTime?.(envelope);
     });
     this.room.onMessage(OthelloMessageType.DOLL_SELECT, (envelope: Envelope<OthelloDollSelectResultPayload>) => {
       LogReceived(OthelloMessageType.DOLL_SELECT, envelope);
-      handlers.onDollSelectResult?.(envelope);
+      this.handlers?.onDollSelectResult?.(envelope);
     });
     this.room.onMessage(OthelloMessageType.TURN_START, (envelope: Envelope<OthelloTurnStartPayload>) => {
       LogReceived(OthelloMessageType.TURN_START, envelope);
-      handlers.onTurnStart?.(envelope);
+      this.handlers?.onTurnStart?.(envelope);
     });
     this.room.onMessage(OthelloMessageType.TURN_REMAIN_TIME, (envelope: Envelope<OthelloRemainTimePayload>) => {
       LogReceived(OthelloMessageType.TURN_REMAIN_TIME, envelope);
-      handlers.onTurnRemainTime?.(envelope);
+      this.handlers?.onTurnRemainTime?.(envelope);
     });
     this.room.onMessage(OthelloMessageType.SELECT_GAME, (envelope: Envelope<OthelloSelectGameResultPayload>) => {
       LogReceived(OthelloMessageType.SELECT_GAME, envelope);
-      handlers.onSelectGameResult?.(envelope);
+      this.handlers?.onSelectGameResult?.(envelope);
     });
     this.room.onMessage(OthelloMessageType.GAME_STATUS, (envelope: Envelope<OthelloGameStatusPayload>) => {
       LogReceived(OthelloMessageType.GAME_STATUS, envelope);
-      handlers.onGameStatus?.(envelope);
+      this.handlers?.onGameStatus?.(envelope);
     });
     this.room.onMessage(MessageType.GAME_RESULT, (envelope: Envelope<OthelloGameResultPayload>) => {
       LogReceived(MessageType.GAME_RESULT, envelope);
-      handlers.onGameResult?.(envelope);
+      this.handlers?.onGameResult?.(envelope);
     });
     this.room.onMessage(MessageType.RETURN_TO_LOBBY, (envelope: Envelope<unknown>) => {
       LogReceived(MessageType.RETURN_TO_LOBBY, envelope);
-      handlers.onReturnToLobby?.();
+      this.handlers?.onReturnToLobby?.();
     });
     this.room.onMessage(MessageType.OPPONENT_JOINED, (envelope: Envelope<OpponentJoinedPayload>) => {
       LogReceived(MessageType.OPPONENT_JOINED, envelope);
-      handlers.onOpponentJoined?.(envelope);
+      this.handlers?.onOpponentJoined?.(envelope);
     });
     this.room.onMessage(MessageType.SEND_NOTICE, (envelope: Envelope<NoticePayload>) => {
       LogReceived(MessageType.SEND_NOTICE, envelope);
-      handlers.onNotice?.(envelope);
+      this.handlers?.onNotice?.(envelope);
     });
     // 위에서 명시적으로 등록하지 않은 타입은 여기로 온다 (colyseus: 전용 핸들러가 없을 때만 호출됨).
     this.room.onMessage("*", (type: string | number, message: unknown) => {
       LogReceived(type, message);
-      handlers.onUnhandledMessage?.(type, message);
+      this.handlers?.onUnhandledMessage?.(type, message);
     });
     this.room.onLeave((code) => {
       console.log(`${LOG_TAG} 게임 채널 연결 끊어짐 code=${code ?? "-"}`);
-      handlers.onLeave?.(code);
+      this.handlers?.onLeave?.(code);
     });
+  }
+
+  // 씬이 파괴될 때 호출한다 — 콜백만 끊고 연결은 그대로 둔다(나가기는 서버에 보내는 메시지로 따로 처리).
+  public Dispose(): void {
+    this.disposed = true;
+    this.handlers = null;
   }
 
   // 게임방 입장 정보 요청 (payload 없음).

@@ -1,5 +1,5 @@
 // 로비 씬 — 씬이 뜨면 버튼 없이 바로 로비 소켓에 접속하고, 연결되면 바로 ENTER_LOBBY 를 보낸다.
-// 소켓 연결에 실패하면 "연결이 안됩니다" 상태 메시지만 보여준다(재시도 버튼 없음).
+// 소켓 연결에 실패하거나 끊어지면 팝업으로 알리고, '로비로 접속' 버튼으로 다시 접속하게 한다.
 // 응답의 name 이 비어 있으면 별명 등록 팝업을 띄운다. 다 끝나면 '내정보 보기' / '게임 참여' 버튼만 남긴다.
 // 통신 내용은 화면에 노출하지 않고 콘솔에만 출력한다.
 import { Container, Text } from "pixi.js";
@@ -8,6 +8,7 @@ import type { Scene } from "./Scene";
 import { Button } from "../ui/Button";
 import { NicknamePopup } from "../ui/NicknamePopup";
 import { InfoPopup } from "../ui/InfoPopup";
+import { ConnectionLostPopup } from "../ui/ConnectionLostPopup";
 import { GameSelect, SELECT_WIDTH } from "../ui/GameSelect";
 import type { LoadingOverlay } from "../ui/LoadingOverlay";
 import type { NoticeBanner } from "../ui/NoticeBanner";
@@ -102,9 +103,13 @@ export class LobbyScene implements Scene {
   private readonly status: Text;
   private readonly nickname_popup = new NicknamePopup();
   private readonly info_popup = new InfoPopup();
+  // 서버가 꺼졌거나 연결이 끊겨 로비 통신이 안 될 때 — 버튼으로 로비에 다시 접속하게 유도한다.
+  private readonly connection_lost_popup = new ConnectionLostPopup({
+    button_label: "로비로 접속",
+    onConfirm: () => this.ReconnectToLobby(),
+  });
   private readonly game_select = new GameSelect();
-  private game_select_hidden_by_popup = false;
-  private readonly my_info_button: Button;
+  private game_select_hidden_by_popup = false;  private readonly my_info_button: Button;
   private readonly join_match_button: Button;
   private readonly cancel_match_button: Button;
   private readonly rank_daily_button: Button;
@@ -162,7 +167,8 @@ export class LobbyScene implements Scene {
       this.rank_daily_button,
       this.rank_weekly_button,
       this.nickname_popup,
-      this.info_popup
+      this.info_popup,
+      this.connection_lost_popup
     );
 
     // GameSelect 의 HTML <select> 는 캔버스 위에 떠 있어 팝업에 가려지지 않으므로, 팝업이 닫힐 때 복원한다.
@@ -206,6 +212,8 @@ export class LobbyScene implements Scene {
   }
 
   public Destroy(): void {
+    // 게임 씬으로 넘어간 뒤 늦게 도착한 로비 종료 이벤트가 파괴된 씬이나 전역 로딩 오버레이를 건드리지 않게 콜백을 끊는다.
+    this.connection.Dispose();
     this.nickname_popup.DestroyPopup();
     this.game_select.DestroySelect();
     this.view.destroy({ children: true });
@@ -258,8 +266,7 @@ export class LobbyScene implements Scene {
             return;
           }
           console.log(`${LOG_TAG} 연결 끊어짐 code=${code ?? "-"}`);
-          this.nickname_popup.Hide();
-          this.SetStatus(`연결이 안됩니다 (code=${code ?? "-"})`);
+          this.ShowConnectionLost(`서버와의 연결이 끊어졌습니다. (code=${code ?? "-"})\n서버가 점검 중이거나 네트워크가 불안정할 수 있습니다.`);
         },
       });
 
@@ -271,8 +278,36 @@ export class LobbyScene implements Scene {
       console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "ENTER_LOBBY", payload })}`);
     } catch (error) {
       console.error(`${LOG_TAG} 접속 실패 ${error instanceof Error ? error.message : String(error)}`);
-      this.SetStatus("연결이 안됩니다.");
+      this.ShowConnectionLost("서버에 접속할 수 없습니다.\n서버가 꺼져 있거나 네트워크가 불안정할 수 있습니다.");
     }
+  }
+
+  // 서버와 통신이 안 될 때 팝업으로 알린다. HTML 오버레이(별명 입력/게임 선택)는 캔버스 위에 떠 있어 팝업에
+  // 가려지지 않으므로 먼저 모두 숨기고, 다른 팝업/로딩도 닫아 이 팝업 하나만 남긴다.
+  private ShowConnectionLost(message: string): void {
+    this.options.loading_overlay.Hide();
+    this.info_popup.Hide();
+    this.nickname_popup.Hide();
+    this.HideMainUi();
+    this.status.visible = false;
+    this.connection_lost_popup.Show(message);
+  }
+
+  // 팝업의 '로비로 접속' 버튼 — 팝업을 닫고 처음부터 다시 로비에 접속한다(성공하면 ENTER_LOBBY 부터 다시 진행).
+  private ReconnectToLobby(): void {
+    this.connection_lost_popup.Hide();
+    this.status.visible = true;
+    void this.ConnectToLobby();
+  }
+
+  // 로비 메인 UI(내정보/게임 참여/랭킹 버튼과 게임 선택)를 모두 숨긴다. 재접속 상태로 되돌릴 때 쓴다.
+  private HideMainUi(): void {
+    this.my_info_button.visible = false;
+    this.join_match_button.visible = false;
+    this.cancel_match_button.visible = false;
+    this.rank_daily_button.visible = false;
+    this.rank_weekly_button.visible = false;
+    this.game_select.Hide();
   }
 
   // ENTER_LOBBY 응답 처리. 실패(result:N)면 메시지만 보여주고, 성공(result:Y)이면 name 이 공백일 때
@@ -386,8 +421,19 @@ export class LobbyScene implements Scene {
     } catch (error) {
       console.error(`${LOG_TAG} 게임 채널 접속 실패 ${error instanceof Error ? error.message : String(error)}`);
       this.options.loading_overlay.Hide();
-      this.SetStatus("게임 채널 접속 실패 (콘솔 확인) — 다시 시도해 주세요.");
-      this.ShowJoinMatchButton();
+
+      if (this.connection.IsConnected()) {
+        // 로비 연결이 아직 살아있으면 그대로 다시 '게임 참여'를 누를 수 있게 한다.
+        this.SetStatus("게임 채널 접속 실패 (콘솔 확인) — 다시 시도해 주세요.");
+        this.ShowJoinMatchButton();
+        return;
+      }
+
+      // MATCH_FOUND 직후 서버가 로비 연결을 CONSENTED 로 끊어놨으므로 '게임 참여'를 다시 보내면 예외가 난다.
+      // 로비부터 다시 접속해 ENTER_LOBBY 부터 진행한다(HandleRejoinGame 실패 처리와 같은 흐름).
+      this.HideMainUi();
+      this.status.visible = true;
+      void this.ConnectToLobby();
     }
   }
 
@@ -415,12 +461,7 @@ export class LobbyScene implements Scene {
 
       // REJOIN_GAME 전송 직후 서버가 로비 연결도 스스로 끊어놓는 것으로 보인다(MATCH_FOUND 와 같은 패턴).
       // 게임 재접속까지 실패했다면 원래대로 로비에 접속된 상태로 돌아가야 하므로, 처음부터 다시 접속한다.
-      this.my_info_button.visible = false;
-      this.join_match_button.visible = false;
-      this.cancel_match_button.visible = false;
-      this.rank_daily_button.visible = false;
-      this.rank_weekly_button.visible = false;
-      this.game_select.Hide();
+      this.HideMainUi();
       this.status.visible = true;
       void this.ConnectToLobby();
     }

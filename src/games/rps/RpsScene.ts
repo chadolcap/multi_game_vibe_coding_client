@@ -2,7 +2,7 @@
 // 왼쪽에 상대 정보 / 오른쪽에 내 정보를 표시한 뒤 '게임 준비' 버튼을 활성화한다.
 // 준비가 끝나면 GAME_START -> (ONE_START -> ONE_REMAIN_TIME* -> 선택 -> ONE_RESULT) 반복 -> GAME_RESULT 순으로 진행한다.
 import { Container, Text } from "pixi.js";
-import { CloseCode, type Room } from "@colyseus/sdk";
+import type { Room } from "@colyseus/sdk";
 import type { Scene } from "../../scenes/Scene";
 import { Button } from "../../ui/Button";
 import { PlayerPanel, AVATAR_SIZE } from "../../ui/PlayerPanel";
@@ -11,6 +11,7 @@ import { GameResultPopup } from "../../ui/GameResultPopup";
 import { GameStartBanner } from "../../ui/GameStartBanner";
 import { RoundResultBanner } from "../../ui/RoundResultBanner";
 import type { NoticeBanner } from "../../ui/NoticeBanner";
+import { ConnectionLostPopup } from "../../ui/ConnectionLostPopup";
 import { RpsConnection } from "./RpsConnection";
 import type {
   EnterRoomPayload,
@@ -53,6 +54,8 @@ export class RpsScene implements Scene {
   private readonly round_result_banner = new RoundResultBanner();
   private readonly result_popup: GameResultPopup;
   private readonly back_to_lobby_button: Button;
+  // 서버가 꺼졌거나 연결이 예기치 않게 끊겼을 때 — 버튼으로 로비에 접속하게 유도한다.
+  private readonly connection_lost_popup: ConnectionLostPopup;
   private readonly connection: RpsConnection;
   private readonly options: RpsSceneOptions;
   // player1/player2 중 어느 쪽이 나인지 — ENTER_ROOM 에서 한 번 정해지면 이 방에서는 계속 유지된다.
@@ -112,6 +115,11 @@ export class RpsScene implements Scene {
     });
     this.back_to_lobby_button.visible = false;
 
+    this.connection_lost_popup = new ConnectionLostPopup({
+      button_label: "로비로 접속",
+      onConfirm: () => this.GoToLobbyOnce(),
+    });
+
     this.view.addChild(
       this.opponent_panel,
       this.my_panel,
@@ -123,7 +131,8 @@ export class RpsScene implements Scene {
       this.result_popup,
       this.back_to_lobby_button,
       this.game_start_banner,
-      this.round_result_banner
+      this.round_result_banner,
+      this.connection_lost_popup
     );
 
     this.connection.Listen({
@@ -160,6 +169,8 @@ export class RpsScene implements Scene {
   }
 
   public Destroy(): void {
+    // '로비로 돌아가기'는 방을 나가지 않고 화면만 바꾸므로, 이후 오는 게임 채널 메시지가 파괴된 씬을 건드리지 않게 콜백을 끊는다.
+    this.connection.Dispose();
     if (this.banner_timer) clearTimeout(this.banner_timer);
     if (this.round_result_timer) clearTimeout(this.round_result_timer);
     this.view.destroy({ children: true });
@@ -363,12 +374,19 @@ export class RpsScene implements Scene {
   private HandleLeave(code?: number): void {
     if (this.returned_to_lobby) return;
 
-    if (this.exit_requested || code === CloseCode.CONSENTED) {
+    // 서버 종료 시에도 CONSENTED 코드로 끊길 수 있어, 코드만으로 정상 종료로 보지 않는다.
+    // 정상 종료는 내가 나가기를 눌렀거나(exit_requested) RETURN_TO_LOBBY 를 받은 경우(returned_to_lobby)뿐이다.
+    if (this.exit_requested) {
       this.GoToLobbyOnce();
       return;
     }
 
     this.status.text = `게임 채널 연결이 끊어졌습니다 (code=${code ?? "-"}). 서버 쪽 문제일 수 있습니다.`;
+    this.connection_lost_popup.Show(
+      `게임 서버와의 연결이 끊어졌습니다. (code=${code ?? "-"})
+서버가 꺼졌거나 네트워크가 불안정할 수 있습니다.
+로비로 다시 접속해 주세요.`
+    );
     this.ready_button.visible = false;
     this.rps_panel.visible = false;
     this.countdown_text.text = "";
@@ -380,7 +398,7 @@ export class RpsScene implements Scene {
     this.back_to_lobby_button.visible = true;
   }
 
-  // RETURN_TO_LOBBY, onLeave(CONSENTED), '로비로 돌아가기' 버튼 중 무엇이 먼저 오든 한 번만 전환한다.
+  // RETURN_TO_LOBBY, onLeave(나가기 요청 후), '로비로 돌아가기'/'로비로 접속' 버튼 중 무엇이 먼저 오든 한 번만 전환한다.
   private GoToLobbyOnce(): void {
     if (this.returned_to_lobby) return;
     this.returned_to_lobby = true;
