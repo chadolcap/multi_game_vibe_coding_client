@@ -4,10 +4,11 @@ import { SceneManager } from "./scenes/SceneManager";
 import { LobbyScene } from "./scenes/LobbyScene";
 import { RpsScene } from "./games/rps/RpsScene";
 import { OthelloScene } from "./games/othello/OthelloScene";
+import { SteppingScene } from "./games/stepping/SteppingScene";
 import { GameId } from "./common/types";
 import { LoadingOverlay } from "./ui/LoadingOverlay";
 import { NoticeBanner } from "./ui/NoticeBanner";
-import { GAME_WIDTH, GAME_HEIGHT } from "./config";
+import { GAME_WIDTH, GAME_HEIGHT, POP_FONT_FAMILY } from "./config";
 import type { GameHandoff } from "./scenes/LobbyScene";
 
 // 캔버스 해상도는 720x1280 으로 고정하고, 실제 화면 크기에 맞춰 CSS 로만 배율을 조정한다
@@ -18,7 +19,18 @@ function FitCanvasToWindow(canvas: HTMLCanvasElement): void {
   canvas.style.height = `${GAME_HEIGHT * scale}px`;
 }
 
+// Pixi Text 는 만들어질 때 캔버스에 글자를 그려두므로, 웹폰트가 로드되기 전에 만들어지면 기본 폰트로 굳어버린다.
+// 첫 씬을 만들기 전에 폰트 로드를 기다린다 — 실패해도 기본 폰트로 계속 진행한다.
+async function LoadFonts(): Promise<void> {
+  try {
+    await document.fonts.load(`24px "${POP_FONT_FAMILY}"`);
+  } catch (error) {
+    console.warn(`폰트 로드 실패: ${POP_FONT_FAMILY}`, error);
+  }
+}
+
 async function Main(): Promise<void> {
+  await LoadFonts();
   const app = new Application();
   await app.init({
     background: "#1a1a2e",
@@ -58,7 +70,12 @@ async function Main(): Promise<void> {
       notice_banner,
       onExitToLobby: GoToLobby,
     };
-    const game_scene = handoff.game === GameId.OTHELLO ? new OthelloScene(scene_options) : new RpsScene(scene_options);
+    const game_scene =
+      handoff.game === GameId.OTHELLO
+        ? new OthelloScene(scene_options)
+        : handoff.game === GameId.STEPPING
+          ? new SteppingScene(scene_options)
+          : new RpsScene(scene_options);
     scene_manager.ChangeScene(game_scene);
   }
 

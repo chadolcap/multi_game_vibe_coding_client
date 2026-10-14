@@ -7,9 +7,19 @@ import type { Scene } from "../../scenes/Scene";
 import { Button } from "../../ui/Button";
 import { PlayerPanel, AVATAR_SIZE } from "../../ui/PlayerPanel";
 import { RpsChoicePanel, RPS_PANEL_WIDTH } from "./RpsChoicePanel";
-import { GameResultPopup } from "../../ui/GameResultPopup";
+import {
+  CUTE_COLOR,
+  CUTE_FONT_FAMILY,
+  CUTE_THEME,
+  CreateCuteBackground,
+  CreatePlayerCard,
+  PLAYER_CARD_WIDTH,
+  PLAYER_CARD_PADDING_X,
+} from "../../ui/CuteTheme";
+import { DuckMascot } from "../../ui/DuckMascot";
+import { Confetti } from "../../ui/Confetti";
+import { GameResultPopup, RESULT_SCREEN_DIM_ALPHA } from "../../ui/GameResultPopup";
 import { GameStartBanner } from "../../ui/GameStartBanner";
-import { RoundResultBanner } from "../../ui/RoundResultBanner";
 import type { NoticeBanner } from "../../ui/NoticeBanner";
 import { ConnectionLostPopup } from "../../ui/ConnectionLostPopup";
 import { RpsConnection } from "./RpsConnection";
@@ -25,8 +35,11 @@ const LOG_TAG = "[Game]";
 
 // GAME_START 연출(효과 배너)을 보여주는 시간. 이 동안은 가위바위보를 낼 수 없다.
 const GAME_START_BANNER_DURATION_MS = 5000;
-// ONE_RESULT 를 팝업으로 보여주는 시간.
+// ONE_RESULT 를 오리 깃발로 보여주는 시간. 끝나면 깃발을 내리고 가위바위보 버튼을 회색(다음 판 대기)으로 돌린다.
 const ROUND_RESULT_DURATION_MS = 5000;
+
+// 두 사용자 정보 카드 사이 간격(가운데에 VS 표기).
+const CARD_GAP = 60;
 
 export interface RpsSceneOptions {
   room: Room;
@@ -46,12 +59,19 @@ export class RpsScene implements Scene {
   private readonly status: Text;
   private readonly round_status: Text;
   private readonly countdown_text: Text;
-  private readonly opponent_panel = new PlayerPanel();
-  private readonly my_panel = new PlayerPanel();
+  private readonly title_text: Text;
+  private readonly vs_text: Text;
+  private readonly opponent_card = CreatePlayerCard("상대", CUTE_COLOR.shirt_dark);
+  private readonly my_card = CreatePlayerCard("나", CUTE_COLOR.orange);
+  // 한 판 결과를 이긴 쪽 깃발을 들어 보여주는 오리 캐릭터 (왼쪽=상대, 오른쪽=나).
+  private readonly duck = new DuckMascot();
+  // 최종 결과(GAME_RESULT) 때 뿌리는 색종이.
+  private readonly confetti = new Confetti();
+  private readonly opponent_panel = new PlayerPanel(CUTE_THEME);
+  private readonly my_panel = new PlayerPanel(CUTE_THEME);
   private readonly ready_button: Button;
   private readonly rps_panel: RpsChoicePanel;
-  private readonly game_start_banner = new GameStartBanner();
-  private readonly round_result_banner = new RoundResultBanner();
+  private readonly game_start_banner = new GameStartBanner(CUTE_THEME);
   private readonly result_popup: GameResultPopup;
   private readonly back_to_lobby_button: Button;
   // 서버가 꺼졌거나 연결이 예기치 않게 끊겼을 때 — 버튼으로 로비에 접속하게 유도한다.
@@ -60,6 +80,9 @@ export class RpsScene implements Scene {
   private readonly options: RpsSceneOptions;
   // player1/player2 중 어느 쪽이 나인지 — ENTER_ROOM 에서 한 번 정해지면 이 방에서는 계속 유지된다.
   private is_player1_me = true;
+  // GAME_RESULT 는 userid 만 주므로, 최종 결과 플랜카드에 쓸 별명을 ENTER_ROOM 때 기억해 둔다.
+  private my_name = "";
+  private opponent_name = "";
   // '재시작'을 눌러서 응답을 기다리는 중인지 — 이 상태에서 OUT_USER 를 받으면(상대가 나가기를 선택함)
   // 대화가 끝난 게 아니라 "새 상대를 기다리는 중"으로 넘어간 것이므로 다르게 처리해야 한다.
   private has_requested_replay = false;
@@ -72,30 +95,81 @@ export class RpsScene implements Scene {
   private returned_to_lobby = false;
   // GAME_START 효과 배너를 5초 뒤에 지우는 타이머. ONE_START 가 먼저 오면 그때 바로 지우고 취소한다.
   private banner_timer: ReturnType<typeof setTimeout> | null = null;
-  // ONE_RESULT 팝업을 5초 뒤에 지우는 타이머. 다음 ONE_START 가 먼저 오면 그때 바로 지운다.
+  // ONE_RESULT 표시(오리 깃발)를 5초 뒤에 거두는 타이머. 다음 ONE_START 가 먼저 오면 그때 바로 거둔다.
   private round_result_timer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: RpsSceneOptions) {
     this.options = options;
     this.connection = new RpsConnection(options.room);
 
-    this.status = new Text({ text: "", style: { fill: 0xff6b6b, fontSize: 18, fontFamily: "sans-serif" } });
+    this.status = new Text({
+      text: "",
+      style: {
+        fill: CUTE_COLOR.red,
+        fontSize: 20,
+        fontFamily: CUTE_FONT_FAMILY,
+        align: "center",
+        wordWrap: true,
+        wordWrapWidth: 640,
+        stroke: { color: 0xffffff, width: 5, join: "round" },
+      },
+    });
     this.status.anchor.set(0.5, 0);
 
     this.round_status = new Text({
       text: "",
-      style: { fill: 0xeaeaea, fontSize: 20, fontFamily: "sans-serif", align: "center" },
+      style: {
+        fill: CUTE_COLOR.brown,
+        fontSize: 24,
+        fontFamily: CUTE_FONT_FAMILY,
+        align: "center",
+        stroke: { color: 0xffffff, width: 5, join: "round" },
+      },
     });
     this.round_status.anchor.set(0.5, 0);
 
     // ONE_REMAIN_TIME 의 남은 시간 — 화면 중앙 하단에 표기.
     this.countdown_text = new Text({
       text: "",
-      style: { fill: 0xffffff, fontSize: 28, fontFamily: "sans-serif", fontWeight: "bold" },
+      style: {
+        fill: CUTE_COLOR.orange,
+        fontSize: 44,
+        fontFamily: CUTE_FONT_FAMILY,
+        stroke: { color: 0xffffff, width: 8, join: "round" },
+      },
     });
     this.countdown_text.anchor.set(0.5, 0);
 
-    this.ready_button = new Button({ label: "게임 준비", width: 440, height: 88, onClick: () => this.OnClickReady() });
+    this.title_text = new Text({
+      text: "가위 바위 보!",
+      style: {
+        fill: CUTE_COLOR.orange,
+        fontSize: 60,
+        fontFamily: CUTE_FONT_FAMILY,
+        stroke: { color: 0xffffff, width: 10, join: "round" },
+        dropShadow: { color: CUTE_COLOR.orange_dark, alpha: 0.5, distance: 5, angle: Math.PI / 2, blur: 0 },
+      },
+    });
+    this.title_text.anchor.set(0.5, 0);
+
+    this.vs_text = new Text({
+      text: "VS",
+      style: {
+        fill: CUTE_COLOR.red,
+        fontSize: 48,
+        fontFamily: CUTE_FONT_FAMILY,
+        stroke: { color: 0xffffff, width: 8, join: "round" },
+      },
+    });
+    this.vs_text.anchor.set(0.5);
+
+    this.ready_button = new Button({
+      label: "게임 준비",
+      width: 440,
+      height: 88,
+      theme: CUTE_THEME,
+      onClick: () => this.OnClickReady(),
+    });
     this.ready_button.SetEnabled(false);
     this.ready_button.visible = false;
 
@@ -105,12 +179,16 @@ export class RpsScene implements Scene {
     this.result_popup = new GameResultPopup({
       onReplay: () => this.OnClickReplay(),
       onExit: () => this.OnClickExit(),
+      theme: CUTE_THEME,
+      // 승리 깃발을 든 오리가 보이도록 작게 만들어 오리 발 아래에 띄우고, 뒤 게임 화면은 옅은 검정으로 덮어 결과 화면과 분리한다.
+      layout: { panel_width: 520, panel_height: 290, panel_y: 830, button_height: 56, dim_alpha: RESULT_SCREEN_DIM_ALPHA },
     });
 
     this.back_to_lobby_button = new Button({
       label: "로비로 돌아가기",
       width: 440,
       height: 88,
+      theme: CUTE_THEME,
       onClick: () => this.GoToLobbyOnce(),
     });
     this.back_to_lobby_button.visible = false;
@@ -121,6 +199,11 @@ export class RpsScene implements Scene {
     });
 
     this.view.addChild(
+      CreateCuteBackground(),
+      this.title_text,
+      this.opponent_card,
+      this.my_card,
+      this.vs_text,
       this.opponent_panel,
       this.my_panel,
       this.status,
@@ -129,9 +212,11 @@ export class RpsScene implements Scene {
       this.ready_button,
       this.rps_panel,
       this.result_popup,
+      // 결과 팝업의 덮개보다 위에 둬서 오리가 어두워지지 않게 한다(팝업 패널/선택 버튼과는 겹치지 않는다).
+      this.duck,
       this.back_to_lobby_button,
+      this.confetti,
       this.game_start_banner,
-      this.round_result_banner,
       this.connection_lost_popup
     );
 
@@ -155,17 +240,23 @@ export class RpsScene implements Scene {
 
   public Resize(width: number, height: number): void {
     const center_x = width / 2;
-    const gap = 40;
+    const panel_y = 190;
 
-    this.opponent_panel.position.set(center_x - gap / 2 - AVATAR_SIZE, 220);
-    this.my_panel.position.set(center_x + gap / 2, 220);
-    this.status.position.set(center_x, 500);
-    this.round_status.position.set(center_x, 560);
+    this.title_text.position.set(center_x, 40);
+    this.opponent_card.position.set(center_x - CARD_GAP / 2 - PLAYER_CARD_WIDTH, panel_y - 20);
+    this.my_card.position.set(center_x + CARD_GAP / 2, panel_y - 20);
+    this.opponent_panel.position.set(this.opponent_card.x + PLAYER_CARD_PADDING_X, panel_y);
+    this.my_panel.position.set(this.my_card.x + PLAYER_CARD_PADDING_X, panel_y);
+    this.vs_text.position.set(center_x, panel_y + AVATAR_SIZE / 2);
+    this.status.position.set(center_x, 486);
+    // 오리는 발 가운데가 기준점이다.
+    this.duck.position.set(center_x, 815);
+    this.round_status.position.set(center_x, 812);
     this.ready_button.position.set(center_x - this.ready_button.width / 2, 900);
-    this.rps_panel.position.set(center_x - RPS_PANEL_WIDTH / 2, 900);
+    this.rps_panel.position.set(center_x - RPS_PANEL_WIDTH / 2, 880);
     this.back_to_lobby_button.position.set(center_x - this.back_to_lobby_button.width / 2, 900);
     // 화면 중앙 하단.
-    this.countdown_text.position.set(center_x, height - 120);
+    this.countdown_text.position.set(center_x, height - 140);
   }
 
   public Destroy(): void {
@@ -184,6 +275,8 @@ export class RpsScene implements Scene {
 
     this.opponent_panel.SetInfo(opponent);
     this.my_panel.SetInfo(me);
+    this.my_name = me.name;
+    this.opponent_name = opponent.name;
     // 재시작 후 상대를 기다리던 중이었다면 떠 있던 '로비로 돌아가기' 버튼을 치운다 — 새 방/상대로 진행된다.
     this.back_to_lobby_button.visible = false;
 
@@ -226,7 +319,7 @@ export class RpsScene implements Scene {
     if (this.banner_timer) clearTimeout(this.banner_timer);
     this.game_start_banner.Hide();
     if (this.round_result_timer) clearTimeout(this.round_result_timer);
-    this.round_result_banner.Hide();
+    this.duck.Reset();
     this.result_popup.Hide();
     this.back_to_lobby_button.visible = true;
   }
@@ -244,7 +337,7 @@ export class RpsScene implements Scene {
     if (this.banner_timer) clearTimeout(this.banner_timer);
     this.game_start_banner.Hide();
     if (this.round_result_timer) clearTimeout(this.round_result_timer);
-    this.round_result_banner.Hide();
+    this.duck.Reset();
     this.result_popup.Hide();
     this.back_to_lobby_button.visible = true;
   }
@@ -266,6 +359,7 @@ export class RpsScene implements Scene {
   // 서버가 양쪽 ready:Y 를 확인하면 온다 — 곧바로 가위바위보를 노출하지 않고, GAME START 효과를
   // 5초 보여준 뒤 ONE_START 가 와야 비로소 선택 화면으로 넘어간다.
   private HandleGameStart(): void {
+    this.confetti.Stop();
     this.has_requested_replay = false;
     this.opponent_left_at_result = false;
     this.ready_button.visible = false;
@@ -274,9 +368,10 @@ export class RpsScene implements Scene {
     this.round_status.text = "";
     this.countdown_text.text = "";
     this.result_popup.Hide();
-    this.round_result_banner.Hide();
-    this.rps_panel.visible = false;
-    this.rps_panel.SetEnabled(false);
+    this.duck.Reset();
+    // 가위바위보 버튼은 미리 보여주되, ONE_START 전까지는 회색(누를 수 없음)으로 둔다.
+    this.rps_panel.visible = true;
+    this.rps_panel.SetWaiting();
 
     if (this.banner_timer) clearTimeout(this.banner_timer);
     this.game_start_banner.Show();
@@ -295,7 +390,7 @@ export class RpsScene implements Scene {
       clearTimeout(this.round_result_timer);
       this.round_result_timer = null;
     }
-    this.round_result_banner.Hide();
+    this.duck.Reset();
 
     this.status.text = ""; // 재접속 직후의 "대기중" 표시가 있었다면 지운다.
     this.round_status.text = "";
@@ -326,8 +421,9 @@ export class RpsScene implements Scene {
     this.countdown_text.text = "";
 
     if (this.round_result_timer) clearTimeout(this.round_result_timer);
-    this.round_result_banner.Show(`나: ${my_choice}   상대: ${opponent_choice}`, this.DescribeRoundWinner(payload.win));
-    this.round_result_timer = setTimeout(() => this.round_result_banner.Hide(), ROUND_RESULT_DURATION_MS);
+    this.round_status.text = `나: ${my_choice}   상대: ${opponent_choice}`;
+    this.ShowRoundWinner(payload.win);
+    this.round_result_timer = setTimeout(() => this.HideRoundResult(), ROUND_RESULT_DURATION_MS);
   }
 
   private HandleGameResult(payload: GameResultPayload): void {
@@ -338,7 +434,15 @@ export class RpsScene implements Scene {
     this.my_panel.UpdateWinPer(me.win_per);
     this.opponent_panel.UpdateWinPer(opponent.win_per);
     if (this.round_result_timer) clearTimeout(this.round_result_timer);
-    this.round_result_banner.Hide();
+    // 오리가 깃발 대신 승자 별명을 쓴 플랜카드를 들고 깡충깡충 뛰고, 색종이를 뿌린다.
+    // 별명을 아직 모르면(ENTER_ROOM 전에 결과가 온 경우) userid 로 대신 쓴다.
+    const winner_name = (am_i_winner ? this.my_name : this.opponent_name) || payload.winner.userid;
+    if (am_i_winner) {
+      this.duck.ShowFinalResult(winner_name, "최종 승리!", CUTE_COLOR.red);
+    } else {
+      this.duck.ShowFinalResult(winner_name, "최종 패배", CUTE_COLOR.shirt_dark);
+    }
+    this.confetti.Play();
     this.rps_panel.visible = false;
     this.round_status.text = "";
     this.countdown_text.text = "";
@@ -393,7 +497,7 @@ export class RpsScene implements Scene {
     if (this.banner_timer) clearTimeout(this.banner_timer);
     this.game_start_banner.Hide();
     if (this.round_result_timer) clearTimeout(this.round_result_timer);
-    this.round_result_banner.Hide();
+    this.duck.Reset();
     this.result_popup.Hide();
     this.back_to_lobby_button.visible = true;
   }
@@ -411,9 +515,24 @@ export class RpsScene implements Scene {
     return win === this.options.my_userid ? "나" : "상대";
   }
 
-  // 한 판 결과 팝업용("승리!/패배/무승부").
-  private DescribeRoundWinner(win: string | undefined): string {
-    if (!win) return "무승부";
-    return win === this.options.my_userid ? "승리!" : "패배";
+  // 한 판 결과 — 오리가 이긴 사람 쪽(왼쪽=상대 카드, 오른쪽=내 카드) 깃발을 들고 "승리!/패배/무승부"를 띄운다.
+  private ShowRoundWinner(win: string | undefined): void {
+    if (!win) {
+      this.duck.ShowRoundResult(null, "무승부", CUTE_COLOR.brown);
+      return;
+    }
+    if (win === this.options.my_userid) {
+      this.duck.ShowRoundResult("right", "승리!", CUTE_COLOR.red);
+      return;
+    }
+    this.duck.ShowRoundResult("left", "패배", CUTE_COLOR.shirt_dark);
+  }
+
+  // 결과 표시 시간이 끝나면 깃발을 내리고, 다음 ONE_START 전까지 가위바위보 버튼을 회색으로 둔다.
+  private HideRoundResult(): void {
+    this.round_result_timer = null;
+    this.duck.Reset();
+    this.round_status.text = "";
+    this.rps_panel.SetWaiting();
   }
 }

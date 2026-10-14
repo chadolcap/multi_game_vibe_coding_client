@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <!-- 손 실루엣: 두 번 그려(굵은 외곽선 → 살색 채우기) 겹친 도형 사이에 선이 생기지 않게 한다. -->
+    <g id="s">
+      <rect x="48" y="74" width="114" height="100" rx="42"/>
+      <circle cx="72" cy="82" r="20"/>
+      <circle cx="99" cy="74" r="21"/>
+      <circle cx="126" cy="74" r="21"/>
+      <circle cx="150" cy="84" r="19"/>
+    </g>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe6d0"/>
+      <stop offset="1" stop-color="#ffcfaa"/>
+    </linearGradient>
+  </defs>
+  <use xlink:href="#s" href="#s" fill="#c98656" stroke="#c98656" stroke-width="9" stroke-linejoin="round"/>
+  <use xlink:href="#s" href="#s" fill="url(#skin)"/>
+  <!-- 손가락 마디 -->
+  <path d="M85 64 q-2 18 0 34 M112 58 q2 20 0 38 M138 64 q2 18 -1 34" fill="none" stroke="#d99a6c" stroke-width="3.5" stroke-linecap="round"/>
+  <!-- 엄지 -->
+  <ellipse cx="64" cy="124" rx="19" ry="33" transform="rotate(-18 64 124)" fill="url(#skin)" stroke="#c98656" stroke-width="4.5"/>
+  <!-- 얼굴 -->
+  <ellipse cx="94" cy="148" rx="9" ry="5.5" fill="#ff9aa2" opacity="0.7"/>
+  <ellipse cx="148" cy="148" rx="9" ry="5.5" fill="#ff9aa2" opacity="0.7"/>
+  <circle cx="108" cy="134" r="5.5" fill="#3b2a20"/>
+  <circle cx="134" cy="134" r="5.5" fill="#3b2a20"/>
+  <circle cx="110" cy="132" r="1.8" fill="#ffffff"/>
+  <circle cx="136" cy="132" r="1.8" fill="#ffffff"/>
+  <path d="M114 146 q7 7 14 0" fill="none" stroke="#3b2a20" stroke-width="3" stroke-linecap="round"/>
+</svg>

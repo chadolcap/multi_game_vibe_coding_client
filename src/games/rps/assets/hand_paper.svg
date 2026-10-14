@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <!-- 손 실루엣: 두 번 그려(굵은 외곽선 → 살색 채우기) 겹친 도형 사이에 선이 생기지 않게 한다. -->
+    <g id="s">
+      <rect x="50" y="98" width="98" height="84" rx="40"/>
+      <rect x="42" y="68" width="24" height="60" rx="12" transform="rotate(-20 54 126)"/>
+      <rect x="68" y="40" width="25" height="80" rx="12.5" transform="rotate(-7 80 118)"/>
+      <rect x="96" y="30" width="26" height="88" rx="13" transform="rotate(3 109 118)"/>
+      <rect x="123" y="40" width="25" height="80" rx="12.5" transform="rotate(13 135 118)"/>
+      <rect x="140" y="92" width="24" height="60" rx="12" transform="rotate(48 152 146)"/>
+    </g>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe6d0"/>
+      <stop offset="1" stop-color="#ffcfaa"/>
+    </linearGradient>
+  </defs>
+  <use xlink:href="#s" href="#s" fill="#c98656" stroke="#c98656" stroke-width="9" stroke-linejoin="round"/>
+  <use xlink:href="#s" href="#s" fill="url(#skin)"/>
+  <!-- 손톱 -->
+  <ellipse cx="37" cy="80" rx="6" ry="5" transform="rotate(-20 37 80)" fill="#fff3ea"/>
+  <ellipse cx="72" cy="50" rx="6.5" ry="5.5" transform="rotate(-7 72 50)" fill="#fff3ea"/>
+  <ellipse cx="113" cy="40" rx="7" ry="5.5" fill="#fff3ea"/>
+  <ellipse cx="150" cy="52" rx="6.5" ry="5.5" transform="rotate(13 150 52)" fill="#fff3ea"/>
+  <!-- 얼굴 -->
+  <ellipse cx="74" cy="154" rx="9" ry="5.5" fill="#ff9aa2" opacity="0.7"/>
+  <ellipse cx="126" cy="154" rx="9" ry="5.5" fill="#ff9aa2" opacity="0.7"/>
+  <circle cx="87" cy="140" r="5.5" fill="#3b2a20"/>
+  <circle cx="113" cy="140" r="5.5" fill="#3b2a20"/>
+  <circle cx="89" cy="138" r="1.8" fill="#ffffff"/>
+  <circle cx="115" cy="138" r="1.8" fill="#ffffff"/>
+  <path d="M93 152 q7 8 14 0" fill="none" stroke="#3b2a20" stroke-width="3" stroke-linecap="round"/>
+</svg>

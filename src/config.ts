@@ -18,3 +18,6 @@ export const LOBBY_CHANNEL_COUNT = NETWORK_CONFIG.lobby_ports.length;
 // 디자인 해상도(세로 모바일 화면 기준). 실제 기기 화면 크기에 맞춰 이 비율로 스케일만 조정한다.
 export const GAME_WIDTH = 720;
 export const GAME_HEIGHT = 1280;
+
+// style.css 의 @font-face 로 등록한 폰트(src/assets/fonts/ONE_Mobile_POP.ttf). Pixi Text 의 fontFamily 로 쓴다.
+export const POP_FONT_FAMILY = "ONE Mobile POP";

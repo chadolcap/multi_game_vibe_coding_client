@@ -2,6 +2,13 @@
   color-scheme: dark;
 }
 
+/* 가위바위보 화면용 폰트. 패밀리 이름은 config.ts 의 POP_FONT_FAMILY 와 맞춘다. */
+@font-face {
+  font-family: "ONE Mobile POP";
+  src: url("./assets/fonts/ONE_Mobile_POP.ttf") format("truetype");
+  font-display: block;
+}
+
 html,
 body {
   margin: 0;

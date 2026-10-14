@@ -15,6 +15,7 @@ interface GameOption {
 const OPTIONS: GameOption[] = [
   { value: GameId.RPS, label: "가위바위보", enabled: true },
   { value: GameId.OTHELLO, label: "오델로", enabled: true },
+  { value: GameId.STEPPING, label: "점핑", enabled: true },
 ];
 
 export const SELECT_WIDTH = 440;
@@ -50,6 +51,9 @@ export class GameSelect extends Container {
       option_el.value = option.value;
       option_el.textContent = option.label;
       option_el.disabled = !option.enabled;
+      // 펼친 목록은 브라우저가 흰 바탕으로 그리는데, 글자색은 <select> 의 흰색을 물려받아 안 보이므로 따로 지정한다.
+      option_el.style.color = option.enabled ? "#1a1a2e" : "#9a9aa8";
+      option_el.style.backgroundColor = "#ffffff";
       this.select_el.appendChild(option_el);
     }
 

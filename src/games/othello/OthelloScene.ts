@@ -6,13 +6,24 @@ import { Container, Text } from "pixi.js";
 import type { Room } from "@colyseus/sdk";
 import type { Scene } from "../../scenes/Scene";
 import { Button } from "../../ui/Button";
-import { PlayerPanel, AVATAR_SIZE } from "../../ui/PlayerPanel";
-import { GameResultPopup } from "../../ui/GameResultPopup";
+import { PlayerPanel } from "../../ui/PlayerPanel";
+import { GameResultPopup, RESULT_SCREEN_DIM_ALPHA } from "../../ui/GameResultPopup";
 import { GameStartBanner } from "../../ui/GameStartBanner";
 import type { NoticeBanner } from "../../ui/NoticeBanner";
 import { ConnectionLostPopup } from "../../ui/ConnectionLostPopup";
+import {
+  CUTE_COLOR,
+  CUTE_FONT_FAMILY,
+  CUTE_THEME,
+  CreateCuteBackground,
+  CreatePlayerCard,
+  PLAYER_CARD_WIDTH,
+  PLAYER_CARD_PADDING_X,
+} from "../../ui/CuteTheme";
+import { DuckMascot } from "../../ui/DuckMascot";
+import { Confetti } from "../../ui/Confetti";
 import { OthelloBoard, OTHELLO_BOARD_PIXEL_SIZE } from "./OthelloBoard";
-import { OthelloColorPanel, OTHELLO_COLOR_PANEL_WIDTH } from "./OthelloColorPanel";
+import { OthelloColorPanel } from "./OthelloColorPanel";
 import { OthelloConnection } from "./OthelloConnection";
 import type { EnterRoomPayload, OutUserPayload, OpponentJoinedPayload } from "../../common/types";
 import {
@@ -31,6 +42,9 @@ const LOG_TAG = "[Game]";
 // GAME_START 연출(효과 배너)을 보여주는 시간. 서버는 이 뒤에 돌 색 선택(DOLL_SELECT_REMAIN_TIME)을 시작한다.
 const GAME_START_BANNER_DURATION_MS = 5000;
 
+// 재접속 안내("별명님 재접속했습니다.")를 보여주는 시간.
+const REJOIN_NOTICE_MS = 5000;
+
 // 내 차례가 아닐 때 사용자 패널을 흐리게 보여주는 투명도.
 const WAITING_PANEL_ALPHA = 0.55;
 
@@ -39,6 +53,14 @@ const WAITING_PANEL_ALPHA = 0.55;
 const AUTO_PLAY_DELAY_MS = 1000;
 // TURN_REMAIN_TIME 카운트다운은 이 값 이하일 때만 화면에 표기한다.
 const TURN_COUNTDOWN_VISIBLE_SEC = 5;
+
+// 두 사용자 정보 카드 사이 간격(가운데에 VS 표기).
+const CARD_GAP = 60;
+// 화면 세로 배치(720x1280 기준). 타이틀 → 사용자 정보 카드 → 돌 개수 줄 → 말판 → 안내 문구 → 버튼 순.
+const PANEL_Y = 118;
+const SCORE_ROW_Y = 412;
+const BOARD_Y = 470;
+const BUTTON_Y = 1186;
 
 export interface OthelloSceneOptions {
   room: Room;
@@ -60,13 +82,21 @@ export class OthelloScene implements Scene {
   private readonly rejoin_notice: Text;
   private readonly score_text: Text;
   private readonly countdown_text: Text;
-  private readonly opponent_panel = new PlayerPanel();
-  private readonly my_panel = new PlayerPanel();
+  private readonly title_text: Text;
+  private readonly vs_text: Text;
+  private readonly opponent_card = CreatePlayerCard("상대", CUTE_COLOR.shirt_dark);
+  private readonly my_card = CreatePlayerCard("나", CUTE_COLOR.orange);
+  private readonly opponent_panel = new PlayerPanel(CUTE_THEME);
+  private readonly my_panel = new PlayerPanel(CUTE_THEME);
+  // 최종 결과(GAME_RESULT) 때 말판 가운데에 나타나 승자 별명을 쓴 플랜카드를 드는 오리 캐릭터.
+  private readonly duck = new DuckMascot();
+  // 최종 결과 때 뿌리는 색종이.
+  private readonly confetti = new Confetti();
   private readonly board: OthelloBoard;
   private readonly color_panel: OthelloColorPanel;
   private readonly ready_button: Button;
   private readonly auto_mode_button: Button;
-  private readonly game_start_banner = new GameStartBanner();
+  private readonly game_start_banner = new GameStartBanner(CUTE_THEME);
   private readonly result_popup: GameResultPopup;
   private readonly back_to_lobby_button: Button;
   // 서버가 꺼졌거나 연결이 예기치 않게 끊겼을 때 — 버튼으로 로비에 접속하게 유도한다.
@@ -81,7 +111,7 @@ export class OthelloScene implements Scene {
   // 지금 내가 돌을 놓을 차례인지(TURN_START.turn === 내 userid). 착수를 보내거나 결과를 받으면 false.
   private is_my_turn = false;
   // 오토모드 — 켜져 있으면 내 차례마다 놓을 수 있는 자리(can) 중 하나를 클라이언트가 골라 SELECT_GAME 으로 보낸다.
-  // 판이 바뀌어도(재시작/새 상대) 유지된다.
+  // 결과 화면에서 '재시작'을 누르면 기본값(OFF)으로 돌아간다(OnClickReplay). 첫 판 시작 전에 켠 값은 GAME_START 에서 유지된다.
   private is_auto_mode = false;
   // 이번 내 차례에 놓을 수 있는 자리(TURN_START.can). 오토모드를 차례 도중에 켜도 바로 둘 수 있게 들고 있는다.
   private my_turn_can: OthelloPoint[] = [];
@@ -89,6 +119,9 @@ export class OthelloScene implements Scene {
   private auto_play_timer: ReturnType<typeof setTimeout> | null = null;
   // 바로 직전 TURN_START 의 turn. 같은 유저가 연속으로 오면 상대가 놓을 곳이 없어 패스한 것이다.
   private last_turn_userid: string | null = null;
+  // GAME_RESULT 는 userid 만 주므로, 최종 결과 플랜카드에 쓸 별명을 ENTER_ROOM 때 기억해 둔다.
+  private my_name = "";
+  private opponent_name = "";
   // '재시작'을 눌러서 응답을 기다리는 중인지 — 이 상태에서 OUT_USER 를 받으면(상대가 나가기를 선택함)
   // 대화가 끝난 게 아니라 "새 상대를 기다리는 중"으로 넘어간 것이므로 다르게 처리해야 한다.
   private has_requested_replay = false;
@@ -101,6 +134,8 @@ export class OthelloScene implements Scene {
   private returned_to_lobby = false;
   // GAME_START 효과 배너를 5초 뒤에 지우는 타이머. 돌 색 선택이 먼저 시작되면 그때 바로 지우고 취소한다.
   private banner_timer: ReturnType<typeof setTimeout> | null = null;
+  // 재접속 안내를 5초 뒤에 지우는 타이머.
+  private rejoin_notice_timer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: OthelloSceneOptions) {
     this.options = options;
@@ -108,62 +143,137 @@ export class OthelloScene implements Scene {
 
     this.status = new Text({
       text: "",
-      style: { fill: 0xff6b6b, fontSize: 18, fontFamily: "sans-serif", align: "center", wordWrap: true, wordWrapWidth: 640 },
+      style: {
+        fill: CUTE_COLOR.red,
+        fontSize: 19,
+        fontFamily: CUTE_FONT_FAMILY,
+        align: "center",
+        wordWrap: true,
+        wordWrapWidth: 640,
+        stroke: { color: 0xffffff, width: 5, join: "round" },
+      },
     });
     this.status.anchor.set(0.5, 0);
 
     this.round_status = new Text({
       text: "",
-      style: { fill: 0xeaeaea, fontSize: 20, fontFamily: "sans-serif", align: "center", wordWrap: true, wordWrapWidth: 640 },
+      style: {
+        fill: CUTE_COLOR.brown,
+        fontSize: 18,
+        fontFamily: CUTE_FONT_FAMILY,
+        align: "center",
+        wordWrap: true,
+        wordWrapWidth: 640,
+        stroke: { color: 0xffffff, width: 4, join: "round" },
+      },
     });
     this.round_status.anchor.set(0.5, 0);
 
     // 재접속 안내 — 서버가 진행 중인 판의 보드 상태를 다시 보내주지 않아 화면 보드가 실제와 다를 수 있다.
+    // (지금은 GAME_STATUS 로 보드를 복원하므로 "별명님 재접속했습니다." 만 5초 동안 보여준다 — ShowRejoinNotice)
     this.rejoin_notice = new Text({
       text: "",
-      style: { fill: 0xffd257, fontSize: 15, fontFamily: "sans-serif", align: "center", wordWrap: true, wordWrapWidth: 640 },
+      style: {
+        fill: CUTE_COLOR.shirt_dark,
+        fontSize: 15,
+        fontFamily: CUTE_FONT_FAMILY,
+        align: "center",
+        wordWrap: true,
+        wordWrapWidth: 640,
+        stroke: { color: 0xffffff, width: 4, join: "round" },
+      },
     });
     this.rejoin_notice.anchor.set(0.5, 0);
 
-    // 보드 위 돌 개수 — 두 사용자 패널 사이에 표기.
+    // 보드 위 돌 개수 — 말판 바로 위 가운데에 표기.
     this.score_text = new Text({
       text: "",
-      style: { fill: 0xffffff, fontSize: 24, fontFamily: "sans-serif", fontWeight: "bold" },
+      style: {
+        fill: CUTE_COLOR.brown,
+        fontSize: 26,
+        fontFamily: CUTE_FONT_FAMILY,
+        stroke: { color: 0xffffff, width: 6, join: "round" },
+      },
     });
     this.score_text.anchor.set(0.5, 0);
 
-    // DOLL_SELECT_REMAIN_TIME / TURN_REMAIN_TIME 의 남은 시간 — 화면 하단에 표기.
+    // DOLL_SELECT_REMAIN_TIME / TURN_REMAIN_TIME 의 남은 시간 — 말판 위 오른쪽 끝(돌 개수와 같은 줄)에 표기.
     this.countdown_text = new Text({
       text: "",
-      style: { fill: 0xffffff, fontSize: 28, fontFamily: "sans-serif", fontWeight: "bold" },
+      style: {
+        fill: CUTE_COLOR.orange,
+        fontSize: 34,
+        fontFamily: CUTE_FONT_FAMILY,
+        stroke: { color: 0xffffff, width: 7, join: "round" },
+      },
     });
-    this.countdown_text.anchor.set(0.5, 0);
+    this.countdown_text.anchor.set(1, 0);
+
+    this.title_text = new Text({
+      text: "오델로!",
+      style: {
+        fill: CUTE_COLOR.orange,
+        fontSize: 44,
+        fontFamily: CUTE_FONT_FAMILY,
+        stroke: { color: 0xffffff, width: 9, join: "round" },
+        dropShadow: { color: CUTE_COLOR.orange_dark, alpha: 0.5, distance: 4, angle: Math.PI / 2, blur: 0 },
+      },
+    });
+    this.title_text.anchor.set(0.5, 0);
+
+    this.vs_text = new Text({
+      text: "VS",
+      style: {
+        fill: CUTE_COLOR.red,
+        fontSize: 48,
+        fontFamily: CUTE_FONT_FAMILY,
+        stroke: { color: 0xffffff, width: 8, join: "round" },
+      },
+    });
+    this.vs_text.anchor.set(0.5);
+
+    this.duck.visible = false;
 
     this.board = new OthelloBoard({ onSelect: (point) => this.OnSelectPoint(point) });
 
-    this.ready_button = new Button({ label: "게임 준비", width: 440, height: 88, onClick: () => this.OnClickReady() });
+    this.ready_button = new Button({
+      label: "게임 준비",
+      width: 440,
+      height: 88,
+      theme: CUTE_THEME,
+      onClick: () => this.OnClickReady(),
+    });
     this.ready_button.SetEnabled(false);
     this.ready_button.visible = false;
 
-    this.color_panel = new OthelloColorPanel({ onSelect: (color) => this.OnSelectColor(color) });
+    // 돌 색 선택은 화면을 딤드 처리하고 말판 가운데에 띄운다.
+    this.color_panel = new OthelloColorPanel({
+      onSelect: (color) => this.OnSelectColor(color),
+      center_y: BOARD_Y + OTHELLO_BOARD_PIXEL_SIZE / 2,
+    });
     this.color_panel.visible = false;
 
     this.auto_mode_button = new Button({
       label: "오토모드: OFF",
       width: 190,
-      height: 48,
+      height: 44,
+      theme: CUTE_THEME,
       onClick: () => this.OnClickAutoMode(),
     });
 
     this.result_popup = new GameResultPopup({
       onReplay: () => this.OnClickReplay(),
       onExit: () => this.OnClickExit(),
+      theme: CUTE_THEME,
+      // 말판 가운데 오리(승자 플랜카드)가 보이도록 작게 만들어 오리 발 아래에 띄우고, 뒤 게임 화면은 옅은 검정으로 덮어 결과 화면과 분리한다.
+      layout: { panel_width: 520, panel_height: 290, panel_y: 940, button_height: 56, dim_alpha: RESULT_SCREEN_DIM_ALPHA },
     });
 
     this.back_to_lobby_button = new Button({
       label: "로비로 돌아가기",
       width: 440,
       height: 88,
+      theme: CUTE_THEME,
       onClick: () => this.GoToLobbyOnce(),
     });
     this.back_to_lobby_button.visible = false;
@@ -174,6 +284,11 @@ export class OthelloScene implements Scene {
     });
 
     this.view.addChild(
+      CreateCuteBackground(),
+      this.title_text,
+      this.opponent_card,
+      this.my_card,
+      this.vs_text,
       this.opponent_panel,
       this.my_panel,
       this.score_text,
@@ -183,10 +298,14 @@ export class OthelloScene implements Scene {
       this.rejoin_notice,
       this.countdown_text,
       this.ready_button,
-      this.color_panel,
       this.auto_mode_button,
+      // 딤드가 오토모드 버튼까지 덮도록 그 위에 둔다.
+      this.color_panel,
       this.result_popup,
+      // 결과 팝업의 옅은 덮개보다 위에 둬서 오리가 흐려지지 않게 한다(팝업 패널과는 겹치지 않는다).
+      this.duck,
       this.back_to_lobby_button,
+      this.confetti,
       this.game_start_banner,
       this.connection_lost_popup
     );
@@ -215,27 +334,33 @@ export class OthelloScene implements Scene {
 
   public Resize(width: number, _height: number): void {
     const center_x = width / 2;
-    const gap = 40;
+    const board_left = center_x - OTHELLO_BOARD_PIXEL_SIZE / 2;
 
-    this.opponent_panel.position.set(center_x - gap / 2 - AVATAR_SIZE, 40);
-    this.my_panel.position.set(center_x + gap / 2, 40);
-    this.score_text.position.set(center_x, 300);
+    this.title_text.position.set(center_x, 10);
+    this.opponent_card.position.set(center_x - CARD_GAP / 2 - PLAYER_CARD_WIDTH, PANEL_Y - 20);
+    this.my_card.position.set(center_x + CARD_GAP / 2, PANEL_Y - 20);
+    this.opponent_panel.position.set(this.opponent_card.x + PLAYER_CARD_PADDING_X, PANEL_Y);
+    this.my_panel.position.set(this.my_card.x + PLAYER_CARD_PADDING_X, PANEL_Y);
+    this.vs_text.position.set(center_x, PANEL_Y + 80);
+    this.score_text.position.set(center_x, SCORE_ROW_Y + 8);
     // 보드 위 왼쪽 끝(돌 개수 표기와 같은 줄)에 둔다.
-    this.auto_mode_button.position.set(center_x - OTHELLO_BOARD_PIXEL_SIZE / 2, 290);
-    this.board.position.set(center_x - OTHELLO_BOARD_PIXEL_SIZE / 2, 340);
-    this.status.position.set(center_x, 990);
-    this.round_status.position.set(center_x, 1030);
-    this.rejoin_notice.position.set(center_x, 1062);
-    this.countdown_text.position.set(center_x, 1090);
-    this.ready_button.position.set(center_x - this.ready_button.width / 2, 1140);
-    this.color_panel.position.set(center_x - OTHELLO_COLOR_PANEL_WIDTH / 2, 1140);
-    this.back_to_lobby_button.position.set(center_x - this.back_to_lobby_button.width / 2, 1140);
+    this.auto_mode_button.position.set(board_left, SCORE_ROW_Y);
+    this.countdown_text.position.set(board_left + OTHELLO_BOARD_PIXEL_SIZE, SCORE_ROW_Y + 2);
+    this.board.position.set(board_left, BOARD_Y);
+    // 오리는 발 가운데가 기준점이라, 몸통이 말판 한가운데에 오도록 발을 가운데보다 조금 아래에 둔다.
+    this.duck.position.set(center_x, BOARD_Y + OTHELLO_BOARD_PIXEL_SIZE / 2 + 135);
+    this.status.position.set(center_x, 1128);
+    this.round_status.position.set(center_x, 1156);
+    this.rejoin_notice.position.set(center_x, 1184);
+    this.ready_button.position.set(center_x - this.ready_button.width / 2, BUTTON_Y);
+    this.back_to_lobby_button.position.set(center_x - this.back_to_lobby_button.width / 2, BUTTON_Y);
   }
 
   public Destroy(): void {
     // '로비로 돌아가기'는 방을 나가지 않고 화면만 바꾸므로, 이후 오는 게임 채널 메시지가 파괴된 씬을 건드리지 않게 콜백을 끊는다.
     this.connection.Dispose();
     if (this.banner_timer) clearTimeout(this.banner_timer);
+    if (this.rejoin_notice_timer) clearTimeout(this.rejoin_notice_timer);
     this.CancelAutoPlay();
     this.view.destroy({ children: true });
   }
@@ -248,6 +373,8 @@ export class OthelloScene implements Scene {
 
     this.opponent_panel.SetInfo(opponent);
     this.my_panel.SetInfo(me);
+    this.my_name = me.name;
+    this.opponent_name = opponent.name;
     // 재시작 후 상대를 기다리던 중이었다면 떠 있던 '로비로 돌아가기' 버튼을 치운다 — 새 방/상대로 진행된다.
     this.back_to_lobby_button.visible = false;
 
@@ -258,8 +385,7 @@ export class OthelloScene implements Scene {
       if (this.status.text === "") {
         this.status.text = "대기중";
       }
-      this.rejoin_notice.text =
-        "재접속했습니다. 현재 판 상태(GAME_STATUS)를 받기 전까지는 화면 보드가 실제와 다를 수 있습니다. (놓을 자리 표시는 정확합니다)";
+      this.ShowRejoinNotice(me.name || me.userid);
       return;
     }
 
@@ -328,7 +454,7 @@ export class OthelloScene implements Scene {
     this.result_popup.Hide();
     this.status.text = "";
     this.round_status.text = "";
-    this.rejoin_notice.text = "";
+    this.HideRejoinNotice();
     this.countdown_text.text = "";
 
     this.ResetBoardState();
@@ -342,15 +468,17 @@ export class OthelloScene implements Scene {
   // 돌 색 선택 남은 시간 — 첫 알림이 오면 GAME START 효과를 치우고 선택 패널을 보여준다.
   private HandleDollSelectRemainTime(payload: OthelloRemainTimePayload): void {
     this.HideGameStartBanner();
-    this.countdown_text.text = `${payload.count}초`;
 
-    // 이미 색이 정해졌거나(재접속 등으로 늦게 받은 알림) 내가 이미 골랐다면 선택 패널을 다시 열지 않는다.
-    if (this.my_color !== null) return;
+    // 이미 색이 정해졌다면(재접속 등으로 늦게 받은 알림) 선택 창을 다시 열지 않고 위쪽 남은 시간만 갱신한다.
+    if (this.my_color !== null) {
+      this.countdown_text.text = `${payload.count}초`;
+      return;
+    }
+    // 선택 창 안에 안내 문구와 남은 시간을 함께 보여주므로, 딤드 뒤에서 중복으로 보이지 않게 위쪽 남은 시간은 비운다.
+    this.countdown_text.text = "";
+    this.color_panel.SetCountdown(payload.count);
     this.color_panel.visible = true;
     this.color_panel.SetEnabled(!this.color_requested);
-    if (!this.color_requested) {
-      this.status.text = "돌 색을 선택하세요. (시간 안에 아무도 고르지 않으면 랜덤으로 정해집니다)";
-    }
   }
 
   private OnSelectColor(color: OthelloColor): void {
@@ -379,7 +507,8 @@ export class OthelloScene implements Scene {
     this.ApplyColorSelect(payload.select);
     this.board.SetStones(payload.status0, payload.status1);
     this.UpdateScore();
-    this.rejoin_notice.text = ""; // 상태를 복원했으니 "보드가 다를 수 있음" 안내는 더 이상 필요 없다.
+    // 재접속 안내("별명님 재접속했습니다.")는 여기서 지우지 않는다 — GAME_STATUS 가 ENTER_ROOM 직후 바로 와서,
+    // 지우면 안내가 보이자마자 사라진다. 5초 타이머가 지운다.
 
     // 지금 차례인 유저가 있으면 TURN_START 를 받은 것과 똑같이 처리한다 — 내 차례면 놓을 자리(can)가 표시되고
     // 바로 둘 수 있으며(오토모드면 자동으로), 상대 차례면 "상대 차례" 안내와 패널 강조만 한다.
@@ -387,7 +516,7 @@ export class OthelloScene implements Scene {
       this.HandleTurnStart({ turn: payload.turn, can: payload.can ?? [] });
     }
     if (this.status.text === "" || this.status.text === "대기중") {
-      this.status.text = "재접속했습니다. 진행 중인 판을 이어서 보여줍니다.";
+      this.status.text = "진행 중인 판을 이어서 보여줍니다.";
     }
   }
 
@@ -434,11 +563,9 @@ export class OthelloScene implements Scene {
   // 오토모드 켜기/끄기. 내 차례 도중에 켜면 그 차례에서도 바로 자동으로 둔다(끄면 예약된 자동 착수를 취소하고
   // 직접 두면 된다 — 놓을 자리 표시는 그대로 남아 있다).
   private OnClickAutoMode(): void {
-    this.is_auto_mode = !this.is_auto_mode;
-    this.auto_mode_button.SetLabel(this.is_auto_mode ? "오토모드: ON" : "오토모드: OFF");
+    this.SetAutoMode(!this.is_auto_mode);
 
     if (!this.is_auto_mode) {
-      this.CancelAutoPlay();
       if (this.is_my_turn) this.status.text = "내 차례입니다. 노란 점이 있는 자리에 돌을 놓으세요.";
       return;
     }
@@ -446,6 +573,13 @@ export class OthelloScene implements Scene {
       this.status.text = "내 차례입니다. 오토모드로 자동으로 둡니다.";
       this.ScheduleAutoPlay();
     }
+  }
+
+  // 오토모드 값과 버튼 문구를 함께 바꾼다. 끄면 예약된 자동 착수도 취소한다.
+  private SetAutoMode(enabled: boolean): void {
+    this.is_auto_mode = enabled;
+    this.auto_mode_button.SetLabel(enabled ? "오토모드: ON" : "오토모드: OFF");
+    if (!enabled) this.CancelAutoPlay();
   }
 
   // 이번 차례에 놓을 수 있는 자리(my_turn_can) 중 하나를 골라 잠시 뒤 직접 두는 것과 똑같이 SELECT_GAME 으로 보낸다.
@@ -525,6 +659,7 @@ export class OthelloScene implements Scene {
 
     this.StopPlayUi();
     this.UpdateScore();
+    this.ShowFinalDuck(am_i_winner, is_draw, payload.winner.userid);
     const outcome = is_draw ? "무승부" : am_i_winner ? "승리" : "패배";
     this.result_popup.Show(
       `나: ${me.win_count}개 (승률 ${me.win_per}%)  상대: ${opponent.win_count}개 (승률 ${opponent.win_per}%)\n결과: ${outcome}`
@@ -538,6 +673,8 @@ export class OthelloScene implements Scene {
 
     // 재시작을 고르면 이전 판의 말판을 바로 비운다(새 판은 GAME_START 에서 다시 초기 배치로 시작한다).
     this.ResetBoardState();
+    // 새 판은 오토모드 OFF(기본값)로 시작한다.
+    this.SetAutoMode(false);
 
     // 상대가 이미 나간 상태였다면 그 상대의 응답을 다시 기다릴 필요가 없으니 바로 대기 상태로 넘어간다.
     if (this.opponent_left_at_result) {
@@ -553,6 +690,21 @@ export class OthelloScene implements Scene {
     this.connection.SendReplay({ replay: "N" });
     console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "N" } })}`);
     this.status.text = "나가는 중...";
+  }
+
+  // 재접속 안내 — "별명님 재접속했습니다." 를 화면 아래에 띄우고 REJOIN_NOTICE_MS 뒤에 지운다.
+  private ShowRejoinNotice(name: string): void {
+    this.HideRejoinNotice();
+    this.rejoin_notice.text = `${name}님 재접속했습니다.`;
+    this.rejoin_notice_timer = setTimeout(() => this.HideRejoinNotice(), REJOIN_NOTICE_MS);
+  }
+
+  private HideRejoinNotice(): void {
+    if (this.rejoin_notice_timer) {
+      clearTimeout(this.rejoin_notice_timer);
+      this.rejoin_notice_timer = null;
+    }
+    this.rejoin_notice.text = "";
   }
 
   // RETURN_TO_LOBBY 로 이미 로비로 옮겨갔다면(GoToLobbyOnce) 여기서는 아무것도 하지 않는다.
@@ -587,13 +739,38 @@ export class OthelloScene implements Scene {
     this.options.onExitToLobby();
   }
 
+  // 말판 가운데에 오리를 띄워 승자 별명을 쓴 플랜카드를 들게 하고 색종이를 뿌린다.
+  // 별명을 아직 모르면(ENTER_ROOM 전에 결과가 온 경우) userid 로 대신 쓴다.
+  private ShowFinalDuck(am_i_winner: boolean, is_draw: boolean, winner_userid: string): void {
+    this.duck.visible = true;
+    if (is_draw) {
+      this.duck.ShowFinalResult(`${this.my_name || "나"} & ${this.opponent_name || "상대"}`, "무승부", CUTE_COLOR.brown, "DRAW");
+    } else {
+      const winner_name = (am_i_winner ? this.my_name : this.opponent_name) || winner_userid;
+      this.duck.ShowFinalResult(
+        winner_name,
+        am_i_winner ? "최종 승리!" : "최종 패배",
+        am_i_winner ? CUTE_COLOR.red : CUTE_COLOR.shirt_dark
+      );
+    }
+    this.confetti.Play();
+  }
+
+  private HideFinalDuck(): void {
+    this.duck.Reset();
+    this.duck.visible = false;
+    this.confetti.Stop();
+  }
+
   // 말판을 초기 배치로 비우고, 판마다 새로 정해지는 상태(돌 색/차례/돌 색 표기/차례 강조)를 지운다.
   // 재시작을 고른 직후와 새 판(GAME_START) 시작 두 곳에서 쓴다.
   private ResetBoardState(): void {
+    this.HideFinalDuck();
     this.board.Reset();
     this.UpdateScore();
     this.my_color = null;
     this.color_requested = false;
+    this.color_panel.Reset();
     this.is_my_turn = false;
     this.last_turn_userid = null;
     this.my_panel.SetNote("");
@@ -613,6 +790,7 @@ export class OthelloScene implements Scene {
     this.round_status.text = "";
     this.SetTurnHighlight(null);
     this.HideGameStartBanner();
+    this.HideFinalDuck();
   }
 
   private HideGameStartBanner(): void {
@@ -627,6 +805,8 @@ export class OthelloScene implements Scene {
   private SetTurnHighlight(is_my_turn: boolean | null): void {
     this.my_panel.alpha = is_my_turn === false ? WAITING_PANEL_ALPHA : 1;
     this.opponent_panel.alpha = is_my_turn === true ? WAITING_PANEL_ALPHA : 1;
+    this.my_card.alpha = this.my_panel.alpha;
+    this.opponent_card.alpha = this.opponent_panel.alpha;
   }
 
   // 보드 위 돌 개수 표기("흑 2 : 백 2").
