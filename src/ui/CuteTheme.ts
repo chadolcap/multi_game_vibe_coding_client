@@ -131,21 +131,27 @@ export const PLAYER_CARD_PADDING_X = (PLAYER_CARD_WIDTH - AVATAR_SIZE) / 2;
 
 // 사용자 정보(PlayerPanel) 뒤에 까는 카드 — 위쪽에 "상대"/"나" 이름표를 단다.
 // PlayerPanel 은 카드 위치에서 (PLAYER_CARD_PADDING_X, 20) 만큼 안쪽에 두면 된다.
-export function CreatePlayerCard(tag: string, tag_color: number): Container {
+// width/height 를 생략하면 기본 카드 크기다(에어하키는 가로로 긴 카드를 쓴다).
+export function CreatePlayerCard(
+  tag: string,
+  tag_color: number,
+  width: number = PLAYER_CARD_WIDTH,
+  height: number = PLAYER_CARD_HEIGHT
+): Container {
   const card = new Container();
   const background = new Graphics()
-    .roundRect(0, 6, PLAYER_CARD_WIDTH, PLAYER_CARD_HEIGHT, 28)
+    .roundRect(0, 6, width, height, 28)
     .fill({ color: 0x000000, alpha: 0.08 })
-    .roundRect(0, 0, PLAYER_CARD_WIDTH, PLAYER_CARD_HEIGHT, 28)
+    .roundRect(0, 0, width, height, 28)
     .fill(CUTE_COLOR.cream)
     .stroke({ color: tag_color, width: 5 });
-  const tag_background = new Graphics().roundRect(PLAYER_CARD_WIDTH / 2 - 44, -22, 88, 38, 19).fill(tag_color);
+  const tag_background = new Graphics().roundRect(width / 2 - 44, -22, 88, 38, 19).fill(tag_color);
   const tag_text = new Text({
     text: tag,
     style: { fill: 0xffffff, fontSize: 22, fontFamily: CUTE_FONT_FAMILY },
   });
   tag_text.anchor.set(0.5);
-  tag_text.position.set(PLAYER_CARD_WIDTH / 2, -3);
+  tag_text.position.set(width / 2, -3);
   card.addChild(background, tag_background, tag_text);
   return card;
 }

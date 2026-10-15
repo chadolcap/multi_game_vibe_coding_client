@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 프로젝트 개요
 
 Colyseus 기반 멀티플레이어 서버(`../server`, 별도 저장소)에 붙는 PixiJS + TypeScript 클라이언트.
-로비에서 게임(가위바위보 `rps`, 오델로 `othello`)을 선택해 입장하는 구조이며, 게임별 파일은
+로비에서 게임(가위바위보 `rps`, 오델로 `othello`, 점핑 `stepping`, 에어하키 `airhockey`)을 선택해 입장하는 구조이며, 게임별 파일은
 `src/games/<게임명>/`에 분리되어 있다(`src/ui/GameSelect.ts`의 `enabled` 플래그로 로비 선택 가능 여부를 제어).
 서버(`../server_ruflo`)가 이미 구현/실행 중인 상태에서, 서버와의 통신 규약에 맞춰 클라이언트만 개발한다. `admin.html`/`src/admin.ts`는 플레이어용 게임
 클라이언트와는 별개로 동작하는 관리자 페이지다(아래 "관리자(Watcher) 페이지" 참고).
@@ -28,10 +28,11 @@ npx tsc --noEmit -p tsconfig.json   # 타입체크만 (커밋/수정 후 항상 
 서버와의 프로토콜은 로컬 엑셀 문서로 관리되며, **서버 개발자와 실시간으로 계속 갱신**된다:
 
 ```
-d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx  (시트: "통신규약", "관리자")
+d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx  (시트: "lobby", "rps", "othello", "stepping", "airhockey", "관리자")
 ```
 
-- "통신규약" 시트 = 로비/게임 채널 프로토콜. "관리자" 시트 = Watcher 채널(`admin.html`) 프로토콜 —
+- "lobby" 시트 = 로비 채널 프로토콜, 게임 이름 시트("rps"/"othello"/"stepping"/"airhockey") = 각 게임 채널 프로토콜
+  (예전에는 "통신규약" 시트 하나였다가 게임별로 나뉨). "관리자" 시트 = Watcher 채널(`admin.html`) 프로토콜 —
   `ADMIN_LOGIN`/`ADMIN_CHANNEL_COUNT`/`ADMIN_CHANNEL_USER`/`SEND_NOTICE`.
 - 빨간 글씨 열 = 서버 개발자의 확인/변경 사항, 파란 글씨 열 = 클라이언트(이 저장소) 쪽 확인/변경 사항.
 - 이 문서가 로컬에 읽어둔 서버 소스코드보다 최신일 수 있다 — 문서와 서버 코드가 다르면 **실제 서버 응답(콘솔 로그로 확인)** 을 우선하고, 문서에 파란 글씨로 비고를 남긴다.
@@ -59,8 +60,11 @@ ui/*.ts                  순수 Pixi Container 컴포넌트. 서버/네트워크
 ```
 src/games/rps/       RpsScene.ts, RpsConnection.ts, RpsChoicePanel.ts, types.ts(RpsMessageType, RpsChoice, ONE_*/SELECT_GAME payload)
 src/games/othello/   OthelloScene.ts, OthelloConnection.ts, OthelloBoard.ts(8x8 보드), OthelloColorPanel.ts, types.ts(OthelloMessageType, DOLL_SELECT/TURN_START/SELECT_GAME payload)
+src/games/stepping/  SteppingScene.ts, SteppingConnection.ts, SteppingMap.ts(맵 번호별 고정 시드 블록 배치), SteppingView.ts(한 유저 플레이 화면), types.ts(SteppingMessageType, MAP_SELECT/MOVE_INFO/GAME_STATUS payload)
+src/games/airhockey/ AirhockeyScene.ts, AirhockeyConnection.ts, AirhockeyTable.ts(테이블/퍽/레버 그리기 + 내 레버 드래그), types.ts(AirhockeyMessageType, 테이블 크기 상수, PUCK_MOVE/LEVER_MOVE/ONE_RESULT/GAME_STATUS payload)
 src/common/types.ts  Envelope, 로비/관리자 메시지, 방 입장·준비·결과(ENTER_ROOM/READY/GAME_RESULT 등 방 공통 메시지), GameId
-src/ui/              Button, InfoPopup, GameResultPopup, GameStartBanner, RoundResultBanner 등 문자열만 받는 범용 컴포넌트
+src/ui/              Button, InfoPopup, GameResultPopup, GameStartBanner, RoundResultBanner 등 문자열만 받는 범용 컴포넌트.
+                     CuteTheme(공용 화면 컨셉 색상표/배경, CUTE_THEME)·UiTheme(테마 인터페이스)·DuckMascot(결과 연출 오리)·Confetti(색종이)도 여기 있다
 ```
 
 - 게임 전용 파일은 클래스명에 게임 접두사(`Rps`, `Othello`)를 붙여 `main.ts`에서 import 할 때 이름이 겹치지 않게 한다.
@@ -81,7 +85,7 @@ src/ui/              Button, InfoPopup, GameResultPopup, GameStartBanner, RoundR
 
 ### 서버 연결 끊김 처리
 
-로비 접속 실패/끊김(`LobbyScene`)과 게임 채널의 예기치 않은 끊김(`RpsScene`/`OthelloScene`의 `HandleLeave`)은 모두
+로비 접속 실패/끊김(`LobbyScene`)과 게임 채널의 예기치 않은 끊김(`RpsScene`/`OthelloScene`/`SteppingScene`/`AirhockeyScene`의 `HandleLeave`)은 모두
 `ui/ConnectionLostPopup`(모달, 버튼 하나)으로 알린다. 로비에서는 `로비로 접속` 버튼이 로비 소켓에 다시 접속하고(실패하면
 팝업이 다시 뜬다), 게임 씬에서는 같은 이름의 버튼이 `GoToLobbyOnce()`로 새 로비 씬을 띄운다. 로비의 별명 입력/게임 선택은
 HTML 오버레이라 팝업에 가려지지 않으므로 팝업을 띄울 때 먼저 숨긴다(`LobbyScene.ShowConnectionLost()`).
@@ -111,6 +115,17 @@ HTML 오버레이라 팝업에 가려지지 않으므로 팝업을 띄울 때 �
 
 **오델로 흐름**(`games/othello/`): `ENTER_ROOM` → `READY` → `GAME_START`(5초 배너) → `DOLL_SELECT_REMAIN_TIME`(돌 색 선택 패널 노출, 흰색=0/검정=1) → `DOLL_SELECT`(S→C 결과 `{select:{색:userid}}`, 한쪽이 고르면 상대는 자동 반대색) → 5초 뒤 `TURN_START{turn, can}`(검정 선공, `can`은 시트에 없는 서버 확장으로 놓을 수 있는 자리) → `TURN_REMAIN_TIME` → `SELECT_GAME`(C→S `{select:{x,y}}`, 좌표는 0~7) → `SELECT_GAME`(S→C `{select, change}`, change는 뒤집히는 돌 좌표) → 2초 뒤 다음 `TURN_START` 반복 → 양쪽 다 둘 곳이 없으면 `GAME_RESULT`. 별도 PASS 메시지는 없고 같은 유저의 `TURN_START`가 연속으로 오면 상대가 패스한 것이다. 오델로 `GAME_RESULT`의 `win_count`는 승리 횟수가 아니라 **최종 돌 개수**이고, 돌 개수가 같으면 `draw:"Y"`가 붙는다. 보드 규칙(합법수/뒤집기)은 서버가 판정하므로 클라이언트는 받은 좌표만 그린다. **재접속**: 게임 중 같은 방으로 재접속(`REJOIN_GAME`)한 당사자에게만 서버가 `GAME_STATUS{select, status0, status1, turn, can}`(돌 색 배정 + 흰색/검정 돌 좌표 목록 + 지금 차례 유저와 그 유저가 놓을 수 있는 자리)를 보내고, `OthelloScene.HandleGameStatus()`가 이걸로 돌 색과 보드를 통째로 복원한 뒤 `turn`이 있으면 `TURN_START`와 같은 경로로 처리해 내 차례였다면 이어서 둘 수 있게 한다. 이 메시지를 받기 전(또는 서버가 아직 구현 전)에는 보드가 실제와 다를 수 있어 안내 문구를 띄운다.
 
+**점핑 흐름**(`games/stepping/`): `ENTER_ROOM` → `READY` → `MAP_SELECT{map}`(맵 번호 1~3, 시트 오타 `MAP_SEELCT`가 아니라 서버 이름 `MAP_SELECT`) → 2초 뒤 `GAME_START` → `GAME_REMAIN_TIME{count}`(서버 제한 시간 60초, 시트의 20초는 옛 값) 동안 양쪽이 **동시에** 점프 → `MOVE_INFO`(C→S `{count, location, save}`, count는 도착하려던 칸 번호로 "직전 성공 칸 + 1"만 받음 / S→C 같은 type에 `userid`, `life`를 붙여 양쪽 모두에게 중계) → 시간이 끝나거나 라이프 0에서 또 추락하면 `GAME_RESULT`. 서버는 맵 번호만 주고 블록 배치는 `SteppingMap`이 번호별 고정 시드로 만든다(양쪽 화면이 같음). 착지 판정은 클라이언트(`SteppingView`)가 하고 결과만 보낸다. 화면 아래는 상대(왼쪽)/나(오른쪽) 플레이 화면 두 개이고, 상대 화면은 중계된 `MOVE_INFO`대로 실제로 뛰는 모습을 재현한다. `GAME_RESULT`의 `win_count`는 **이동한 칸 수**, `score`(남은 라이프×10 + 칸 수×5)·`life`는 시트에 없는 서버 확장이다. 재접속 당사자에게는 `GAME_STATUS{map, count?, player1, player2}`(각 `{userid, count, life, location}`)가 온다.
+
+**에어하키 흐름**(`games/airhockey/`): `ENTER_ROOM` → `READY` → `GAME_START` → 3초 뒤 `ONE_START`(한 판 = 한 골, 퍽이 가운데에 멈춘 채 놓이고 먼저 친 쪽이 선공) → 실시간 진행: 서버가 퍽 물리를 계산해 `PUCK_MOVE{loc}`(움직이는 동안 30Hz)로 보내고, 클라이언트는 내 레버 좌표만 `LEVER_MOVE{loc}`로 보내며, 상대 레버는 서버가 `LEVER_MOVE{user, loc}`로 중계 → 골이면 `ONE_RESULT{win, win_count}` → 3초 뒤 다음 `ONE_START` → 누군가 3골(`AIRHOCKEY_WIN_GOALS`)이면 `GAME_RESULT`.
+- 좌표계: 원점이 테이블 정중앙, y는 **위쪽이 +**(화면과 반대). 좌표는 항상 받는/보내는 유저 기준이라 내 골대가 아래다 — 서버가 위쪽 유저에게 뒤집어 보내므로 클라이언트는 뒤집지 않는다. 테이블/퍽/레버 크기(`types.ts`)는 서버 `airhockeyConstants.ts`와 반드시 같아야 한다(충돌 계산 기준).
+- 판 시작 레버 자리: 서버는 `ONE_START` 때 레버 자리를 정하지 않고 그 판의 첫 `LEVER_MOVE` 좌표에 바로 놓는다. 그래서 클라이언트가 `ONE_START`를 받자마자 퍽 위/아래 `ROUND_START_OFFSET`(300, 두 레버 중심 간격 600 — 사용자 결정 2026-10-15) 자리를 첫 `LEVER_MOVE`로 보낸다(`AirhockeyTable.ts`).
+- `PUCK_MOVE`/`LEVER_MOVE`는 초당 수십 번이라 Connection 에서도 매번 로그하지 않는다(판마다 첫 `PUCK_MOVE`만 로그) — "모든 수신 메시지 로그" 원칙의 유일한 예외.
+- 퍽이 오래 제자리면 서버가 골 없이 그 판을 다시 시작(`ONE_START` 재수신)한다. 이게 계속 반복돼 게임이 진행되지 않으면 **`GAME_RESULT{draw:"Y"}`** 로 끝낸다 — 예전 `GAME_INVALID` 별도 메시지는 폐지(사용자 결정 2026-10-15). 클라이언트는 `draw`("Y"/"N", 없으면 "N") 값으로만 무승부/승패 결과 화면을 나눈다.
+- `GAME_RESULT`의 `win_count`는 **넣은 골 수**, `score`는 골 수 × 5. 재접속 당사자에게는 `GAME_STATUS{puck, LEVER0, LEVER1, win_count0?, win_count1?}`(LEVER0/1·win_count0/1 = player1/player2 순서)가 온다.
+
+`draw:"Y"`(오델로·점핑·에어하키)면 `winner`/`loser`는 승자/패자가 아니라 그냥 두 참가자이고, 각 씬은 오리(`DuckMascot`)가 두 별명과 "무승부"를 드는 화면으로 처리한다.
+
 `GAME_RESULT`의 `payload`는 `player1`/`player2`가 아니라 `{winner, loser}`(각각 `{userid, win_count, win_per}`)다 — `winner.userid`를 내 `userid`와 비교해 나/상대를 바로 구분한다(더 이상 `is_player1_me` 비교가 필요 없음). `win_per`는 `RpsScene`이 `ENTER_ROOM` 때 그린 사용자 정보 패널에도 반영한다(`PlayerPanel.UpdateWinPer()`).
 
 ### 프로토콜 타입 (`src/common/types.ts`)
@@ -126,15 +141,15 @@ PixiJS는 네이티브 텍스트 입력/드롭다운을 지원하지 않는다. 
 
 ### 로비 게임 선택 (멀티게임 확장)
 
-`GameSelect`(로비 UI)가 현재 선택된 게임(`GameId`: `"rps"` | `"othello"`)을 들고 있고, `JOIN_MATCH`와
+`GameSelect`(로비 UI)가 현재 선택된 게임(`GameId`: `"rps"` | `"othello"` | `"stepping"` | `"airhockey"`)을 들고 있고, `JOIN_MATCH`와
 `PLAY_INFO` 요청 모두 이 값을 `game` 필드로 함께 보낸다 — 서버가 어떤 게임에 대한 매칭/전적인지 구분해야 하기
 때문이다. 아직 게임 로직이 없는 게임을 추가할 때는 `GameSelect`의 옵션 목록에서 `enabled: false`로 선택만
 막아두고(목록에서 완전히 빼지 않음), 완성되면 이 플래그를 켠다.
 
 매칭 성사(`MATCH_FOUND`)/재접속(`REJOIN_GAME`) 후 어느 게임 씬을 띄울지는 `room_name` 접두사(`othello_1` →
 `othello`, `ParseGameIdFromRoomName()`)로 정해 `GameHandoff.game`에 담고, `main.ts`의 `HandleGameRoomReady`가
-이 값으로 `RpsScene`/`OthelloScene`을 고른다. 게임 채널 포트는 서버가 `seat_reservation.publicAddress`로
-알려주므로(오델로는 서버 `.env`의 `OTHELLO_PORTS`, 로컬 테스트는 6031) 클라이언트가 직접 다루지 않는다.
+이 값으로 `RpsScene`/`OthelloScene`/`SteppingScene`/`AirhockeyScene`을 고른다(씬 옵션은 모든 게임이 같다). 게임 채널 포트는 서버가 `seat_reservation.publicAddress`로
+알려주므로(게임별 포트는 서버 `.env`에서 관리 — 예: 오델로는 `OTHELLO_PORTS`, 로컬 테스트는 6031) 클라이언트가 직접 다루지 않는다.
 
 ## 관리자(Watcher) 페이지
 

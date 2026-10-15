@@ -114,6 +114,7 @@ export const GameId = {
   RPS: "rps",
   OTHELLO: "othello",
   STEPPING: "stepping", // 점핑 게임 (2026-10-14 추가, 엑셀 "stepping" 시트)
+  AIRHOCKEY: "airhockey", // 에어하키 (2026-10-15 추가, 엑셀 "airhockey" 시트)
 } as const;
 export type GameId = (typeof GameId)[keyof typeof GameId];
 

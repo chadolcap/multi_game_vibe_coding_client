@@ -5,6 +5,7 @@ import { LobbyScene } from "./scenes/LobbyScene";
 import { RpsScene } from "./games/rps/RpsScene";
 import { OthelloScene } from "./games/othello/OthelloScene";
 import { SteppingScene } from "./games/stepping/SteppingScene";
+import { AirhockeyScene } from "./games/airhockey/AirhockeyScene";
 import { GameId } from "./common/types";
 import { LoadingOverlay } from "./ui/LoadingOverlay";
 import { NoticeBanner } from "./ui/NoticeBanner";
@@ -76,7 +77,9 @@ async function Main(): Promise<void> {
         ? new OthelloScene(scene_options)
         : handoff.game === GameId.STEPPING
           ? new SteppingScene(scene_options)
-          : new RpsScene(scene_options);
+          : handoff.game === GameId.AIRHOCKEY
+            ? new AirhockeyScene(scene_options)
+            : new RpsScene(scene_options);
     scene_manager.ChangeScene(game_scene);
   }
 
