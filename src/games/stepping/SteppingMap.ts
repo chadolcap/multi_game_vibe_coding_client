@@ -31,29 +31,44 @@ interface MapSetting {
   // ⚠️ 서버 steppingConstants.ts 의 STEPPING_MAP_BLOCK_COUNTS 와 같아야 한다 — 서버가 "모든 칸 완주"
   //    판정과 count 상한 검사에 쓴다. 서버 값은 아직 임시값(100)이라 그대로 맞춰 두었다.
   block_count: number;
-  min_radius: number;
-  max_radius: number;
-  // 이웃한 두 블록 윗면 가장자리 사이 거리(중심 거리 = 두 반지름 + 간격).
-  min_gap: number;
-  max_gap: number;
-  // 사각형 블록이 나올 확률.
-  square_rate: number;
 }
 
-// 맵 번호가 클수록 블록이 작아지고 간격이 넓어져 어려워진다.
+// 맵마다 시드만 다르고 블록 크기/간격 규칙은 모두 같다 — 어떤 맵이 걸려도 난이도가 같다(배치만 다름).
 const MAP_SETTINGS: Record<number, MapSetting> = {
-  1: { seed: 101, block_count: 100, min_radius: 48, max_radius: 58, min_gap: 12, max_gap: 52, square_rate: 0.25 },
-  2: { seed: 202, block_count: 100, min_radius: 42, max_radius: 54, min_gap: 18, max_gap: 70, square_rate: 0.35 },
-  3: { seed: 303, block_count: 100, min_radius: 36, max_radius: 48, min_gap: 24, max_gap: 86, square_rate: 0.45 },
+  1: { seed: 101, block_count: 100 },
+  2: { seed: 202, block_count: 100 },
+  3: { seed: 303, block_count: 100 },
 };
+
+// 범위 [min, max] 묶음.
+interface Range {
+  min: number;
+  max: number;
+}
+
+// 블록 크기(윗면 가로 반지름)와 이웃한 두 블록 윗면 가장자리 사이 간격(중심 거리 = 두 반지름 + 간격)의
+// 고를 수 있는 범위. 초반(EASY)은 블록이 크고 간격 차가 작아 비슷한 게이지로 쉽게 이어 뛰고, 끝(HARD)으로
+// 갈수록 범위가 넓어져 작은 블록·먼 간격이 섞이며 매번 다른 게이지가 필요해진다. 확률이 아니라 범위 자체를
+// 칸 번호에 따라 넓히므로, 어느 맵이든 같은 칸 구간의 난이도가 같다.
+const EASY_RADIUS: Range = { min: 54, max: 66 };
+const HARD_RADIUS: Range = { min: 30, max: 74 };
+const EASY_GAP: Range = { min: 22, max: 36 };
+const HARD_GAP: Range = { min: 8, max: 130 };
+// 처음 이 비율(전체 칸 대비)까지는 쉬운 범위 그대로 두고, 그 뒤로 마지막 칸까지 고르게 어려워진다.
+const EASY_SECTION_RATE = 0.1;
+// 다음 블록 방향 각도(수평 기준 위쪽, 라디안) — 대각선 고정이 아니라 이 범위에서 무작위로 기울인다.
+const MIN_PATH_ANGLE = (22 * Math.PI) / 180;
+const MAX_PATH_ANGLE = (52 * Math.PI) / 180;
+// 앞 블록 가장자리에 서 있어도 다음 블록 중심까지 닿을 수 있게 하는 최대 거리(앞 블록 반지름 + 중심 거리).
+// ⚠️ SteppingView 의 MAX_CHARGE_DISTANCE(330)보다 조금 작게 둔다.
+const MAX_REACH = 320;
+// 사각형 블록이 나올 확률.
+const SQUARE_RATE = 0.35;
 
 export const STEPPING_BLOCK_STYLE_COUNT = 5;
 
 // 블록 윗면의 세로 반지름 비율(위에서 비스듬히 내려다본 원근감).
 const TOP_RATIO = 0.56;
-// 블록이 이어지는 대각선 방향 — x 성분과 y 성분(위쪽이라 음수). 길이 1 로 정규화한 값.
-export const PATH_DIR_X = 0.835;
-export const PATH_DIR_Y = -0.55;
 // 블록이 화면 가로로 너무 멀리 가지 않도록 x 를 이 범위 안에서만 지그재그로 움직인다.
 const X_LIMIT = 105;
 
@@ -71,20 +86,28 @@ export function GetSteppingMap(map_no: number): SteppingMap {
   for (let index = 1; index <= setting.block_count; index++) {
     const prev = blocks[index - 1];
     const is_last = index === setting.block_count;
-    const rx = is_last ? setting.max_radius + 4 : Lerp(setting.min_radius, setting.max_radius, random());
-    const shape: SteppingBlockShape = !is_last && random() < setting.square_rate ? "square" : "round";
-    const gap = Lerp(setting.min_gap, setting.max_gap, random());
-    const distance = prev.rx + rx + gap;
+    const difficulty = GetDifficulty(index, setting.block_count);
+    // 도착 블록은 가장 큰 크기로 고정한다.
+    const rx = is_last ? HARD_RADIUS.max : PickByDifficulty(EASY_RADIUS, HARD_RADIUS, difficulty, random);
+    const shape: SteppingBlockShape = !is_last && random() < SQUARE_RATE ? "square" : "round";
+    const gap = PickByDifficulty(EASY_GAP, HARD_GAP, difficulty, random);
+    // 앞 블록 가장자리에서도 닿을 수 있게 중심 거리를 제한한다.
+    const distance = Math.min(prev.rx + rx + gap, MAX_REACH - prev.rx);
 
+    const angle = Lerp(MIN_PATH_ANGLE, MAX_PATH_ANGLE, random());
+    let dx = distance * Math.cos(angle);
     // 왼쪽/오른쪽은 무작위로 고르되, 가로 범위를 넘어가면 반대쪽으로 꺾는다.
     let side = random() < 0.5 ? -1 : 1;
-    if (prev.x + side * distance * PATH_DIR_X > X_LIMIT) side = -1;
-    if (prev.x + side * distance * PATH_DIR_X < -X_LIMIT) side = 1;
+    if (prev.x + side * dx > X_LIMIT) side = -1;
+    if (prev.x + side * dx < -X_LIMIT) side = 1;
+    // 양쪽 다 넘으면 가로를 범위 끝까지만 가고, 중심 거리(= 필요한 게이지)는 그대로 두도록 세로로 더 올린다.
+    dx = Math.min(dx, X_LIMIT - side * prev.x);
+    const dy = Math.sqrt(distance * distance - dx * dx);
 
     blocks.push({
       index,
-      x: Math.round(prev.x + side * distance * PATH_DIR_X),
-      y: Math.round(prev.y + distance * PATH_DIR_Y),
+      x: Math.round(prev.x + side * dx),
+      y: Math.round(prev.y - dy),
       rx: Math.round(rx),
       ry: Math.round(rx * TOP_RATIO),
       shape,
@@ -107,6 +130,19 @@ export function IsInsideBlock(block: SteppingBlock, local_x: number, local_y: nu
 export function GetCenterRatio(block: SteppingBlock, local_x: number, local_y: number): number {
   if (block.shape === "square") return Math.max(Math.abs(local_x) / block.rx, Math.abs(local_y) / block.ry);
   return Math.sqrt((local_x / block.rx) ** 2 + (local_y / block.ry) ** 2);
+}
+
+// index 번째 칸의 난이도(0 = 쉬움, 1 = 가장 어려움). 초반 구간은 0 이고 그 뒤 마지막 칸까지 고르게 오른다.
+function GetDifficulty(index: number, block_count: number): number {
+  const progress = index / block_count;
+  return Math.max(0, Math.min(1, (progress - EASY_SECTION_RATE) / (1 - EASY_SECTION_RATE)));
+}
+
+// 난이도만큼 쉬운 범위에서 어려운 범위 쪽으로 넓힌 범위 안에서 값을 고른다.
+function PickByDifficulty(easy: Range, hard: Range, difficulty: number, random: () => number): number {
+  const min = Lerp(easy.min, hard.min, difficulty);
+  const max = Lerp(easy.max, hard.max, difficulty);
+  return Lerp(min, max, random());
 }
 
 function Lerp(from: number, to: number, ratio: number): number {

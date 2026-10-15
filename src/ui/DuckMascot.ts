@@ -142,6 +142,12 @@ export class DuckMascot extends Container {
   }
 
   // 결과 표시를 거두고 깃발을 내린다.
+  // 깃발 없이 오리만 보여줄 때(로비) 쓴다. Reset() 이 불리면 다시 보인다.
+  public HideFlags(): void {
+    this.left_flag.root.visible = false;
+    this.right_flag.root.visible = false;
+  }
+
   public Reset(): void {
     this.hop_count = 0;
     this.SetFlag(this.left_flag, FLAG_LOWERED, false);

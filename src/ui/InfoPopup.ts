@@ -2,6 +2,7 @@
 import { Container, Graphics, Text } from "pixi.js";
 import { Button } from "./Button";
 import { GAME_WIDTH, GAME_HEIGHT } from "../config";
+import { DrawThemedPanel, type UiTheme } from "./UiTheme";
 
 const PANEL_WIDTH = 600;
 const PANEL_HEIGHT = 760; // 글자를 키운 만큼 랭킹 목록이 들어갈 세로 공간을 늘림
@@ -18,18 +19,18 @@ export class InfoPopup extends Container {
   // 팝업이 닫힐 때 호출된다(HTML 오버레이처럼 캔버스 위에 떠 있는 요소를 복원하는 용도).
   public on_close?: () => void;
 
-  constructor() {
+  constructor(theme: UiTheme) {
     super();
     this.visible = false;
 
     const dim = new Graphics().rect(0, 0, GAME_WIDTH, GAME_HEIGHT).fill({ color: 0x000000, alpha: 0.6 });
     dim.eventMode = "static"; // 뒤쪽 UI 클릭 차단(모달)
 
-    const panel = new Graphics().roundRect(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, 16).fill(0x22243a);
+    const panel = DrawThemedPanel(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, theme);
 
     this.title = new Text({
       text: "정보",
-      style: { fill: 0xffffff, fontSize: 34, fontFamily: "sans-serif", fontWeight: "bold" },
+      style: { fill: theme.title_color, fontSize: 34, fontFamily: theme.font_family, fontWeight: "bold" },
     });
     this.title.anchor.set(0.5, 0);
     this.title.position.set(GAME_WIDTH / 2, PANEL_Y + 32);
@@ -37,9 +38,9 @@ export class InfoPopup extends Container {
     this.content = new Text({
       text: "",
       style: {
-        fill: 0xeaeaea,
+        fill: theme.text_color,
         fontSize: 24,
-        fontFamily: "monospace",
+        fontFamily: theme.content_font_family,
         fontWeight: "bold",
         wordWrap: true,
         wordWrapWidth: CONTENT_WIDTH,
@@ -52,6 +53,7 @@ export class InfoPopup extends Container {
       label: "닫기",
       width: CONTENT_WIDTH,
       height: 64,
+      theme,
       onClick: () => this.Hide(),
     });
     this.close_button.position.set(CONTENT_X, PANEL_Y + PANEL_HEIGHT - 64 - 32);

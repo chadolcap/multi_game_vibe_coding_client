@@ -2,14 +2,17 @@
 // 소켓 연결에 실패하거나 끊어지면 팝업으로 알리고, '로비로 접속' 버튼으로 다시 접속하게 한다.
 // 응답의 name 이 비어 있으면 별명 등록 팝업을 띄운다. 다 끝나면 '내정보 보기' / '게임 참여' 버튼만 남긴다.
 // 통신 내용은 화면에 노출하지 않고 콘솔에만 출력한다.
-import { Container, Text } from "pixi.js";
+import { Container, Graphics, Text } from "pixi.js";
 import { CloseCode, type Room } from "@colyseus/sdk";
 import type { Scene } from "./Scene";
 import { Button } from "../ui/Button";
 import { NicknamePopup } from "../ui/NicknamePopup";
 import { InfoPopup } from "../ui/InfoPopup";
 import { ConnectionLostPopup } from "../ui/ConnectionLostPopup";
-import { GameSelect, SELECT_WIDTH } from "../ui/GameSelect";
+import { GameSelect, GetGameLabel, SELECT_WIDTH } from "../ui/GameSelect";
+import { CUTE_COLOR, CUTE_FONT_FAMILY, CUTE_THEME, CreateCuteBackground } from "../ui/CuteTheme";
+import { GAME_WIDTH } from "../config";
+import { DuckMascot } from "../ui/DuckMascot";
 import type { LoadingOverlay } from "../ui/LoadingOverlay";
 import type { NoticeBanner } from "../ui/NoticeBanner";
 import { LobbyConnection } from "../network/LobbyConnection";
@@ -21,6 +24,7 @@ import {
   type EnterLobbyResultPayload,
   type MatchFoundPayload,
   type NameResultPayload,
+  type PlayInfoPayload,
   type RejoinGamePayload,
   type RankEntry,
   type MyRankInfo,
@@ -64,17 +68,35 @@ const JOIN_MATCH_ERROR_MESSAGES: Record<number, string> = {
 
 const LOG_TAG = "[Lobby]";
 
-// 서버 응답 객체를 "key: value" 줄글로 바꿔서 팝업에 그대로 보여준다.
-function FormatPayload(payload: unknown): string {
-  if (payload === null || typeof payload !== "object") return String(payload);
-  return Object.entries(payload as Record<string, unknown>)
-    .map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`)
-    .join("\n");
+// 화면 세로 배치(720x1280 기준). 타이틀 → 오리 → 메뉴 카드(게임 선택 + 버튼) → 상태 문구 순.
+const TITLE_Y = 70;
+// 오리는 발 가운데가 기준점이다.
+const DUCK_FEET_Y = 500;
+const MENU_CARD_WIDTH = 540;
+const MENU_CARD_Y = 520;
+const MENU_CARD_HEIGHT = 460;
+// 메인 메뉴가 떠 있을 때는 상태 문구(매칭 중 등)를 카드 아래에, 접속 중처럼 메뉴가 없을 때는 빈 카드 가운데에 둔다.
+const STATUS_Y_WITH_MENU = 1010;
+const STATUS_Y_WITHOUT_MENU = MENU_CARD_Y + MENU_CARD_HEIGHT / 2 - 20;
+// 상태 문구가 카드 가운데에 놓일 때 카드 테두리를 넘지 않도록 좌우 여백을 둔 줄바꿈 폭.
+const STATUS_WRAP_WIDTH = MENU_CARD_WIDTH - 60;
+
+// PLAY_INFO 응답을 '내정보 보기' 팝업용 줄글로 바꾼다. result 는 성공 여부라 화면에 보여주지 않고,
+// 첫 줄에 어느 게임의 전적인지 게임 이름을 쓴다.
+function FormatPlayInfo(game: GameId, payload: PlayInfoPayload): string {
+  if (payload.result === "N") return `${GetGameLabel(game)}\n\n전적 정보를 불러오지 못했습니다.`;
+  return [
+    GetGameLabel(game),
+    `전체 게임 참여 수 : ${payload.total_game_count}`,
+    `전체 게임 승리 수 : ${payload.total_win_count}`,
+    `오늘 게임 참여 수 : ${payload.today_game_count}`,
+    `오늘 게임 승리 수 : ${payload.today_win_count}`,
+  ].join("\n");
 }
 
 // RANK_DAILY/RANK_WEEKLY 의 list([별명, 점수] 튜플 배열)와 내 순위를 팝업용 줄글로 바꾼다.
 function FormatRankList(list: RankEntry[], my: MyRankInfo): string {
-  const lines = list.map(([name, score], index) => `${index + 1}위  ${name}  ${score}점`);
+  const lines = list.map(([name, score], index) => `${index + 1}위 · ${name} · ${score}점`);
   lines.push("", `내 순위: ${my.rank}위 (${my.score}점)`);
   return lines.join("\n");
 }
@@ -101,15 +123,25 @@ export class LobbyScene implements Scene {
   readonly view = new Container();
 
   private readonly status: Text;
-  private readonly nickname_popup = new NicknamePopup();
-  private readonly info_popup = new InfoPopup();
+  private readonly title_text: Text;
+  private readonly subtitle_text: Text;
+  // 게임 화면과 같은 컨셉의 오리 캐릭터 — 로비에서는 제자리에서 통통 튀기만 한다.
+  private readonly duck = new DuckMascot();
+  // 게임 선택 + 버튼을 올려 두는 크림색 카드.
+  private readonly menu_card: Graphics;
+  // 화면 가로 중앙 — Resize() 가 갱신하며, 그 전에는 디자인 해상도 기준 값을 쓴다.
+  private center_x = GAME_WIDTH / 2;
+  private readonly nickname_popup = new NicknamePopup(CUTE_THEME);
+  private readonly info_popup = new InfoPopup(CUTE_THEME);
   // 서버가 꺼졌거나 연결이 끊겨 로비 통신이 안 될 때 — 버튼으로 로비에 다시 접속하게 유도한다.
   private readonly connection_lost_popup = new ConnectionLostPopup({
     button_label: "로비로 접속",
     onConfirm: () => this.ReconnectToLobby(),
+    theme: CUTE_THEME,
   });
-  private readonly game_select = new GameSelect();
-  private game_select_hidden_by_popup = false;  private readonly my_info_button: Button;
+  private readonly game_select = new GameSelect(CUTE_THEME);
+  private game_select_hidden_by_popup = false;
+  private readonly my_info_button: Button;
   private readonly join_match_button: Button;
   private readonly cancel_match_button: Button;
   private readonly rank_daily_button: Button;
@@ -117,39 +149,90 @@ export class LobbyScene implements Scene {
   private readonly connection = new LobbyConnection();
   private readonly options: LobbySceneOptions;
   private my_userid = "";
+  // 마지막으로 PLAY_INFO 를 요청한 게임 — 응답에는 game 이 없고, 응답이 오기 전에 선택이 바뀔 수 있어 요청 때 기억해 둔다.
+  private play_info_game: GameId = GameId.RPS;
 
   constructor(options: LobbySceneOptions) {
     this.options = options;
     this.status = new Text({
       text: "대기 중",
       style: {
-        fill: 0xcccccc,
+        fill: CUTE_COLOR.brown,
         fontSize: 24,
-        fontFamily: "sans-serif",
+        fontFamily: CUTE_FONT_FAMILY,
         wordWrap: true,
-        wordWrapWidth: 600,
+        wordWrapWidth: STATUS_WRAP_WIDTH,
         align: "center",
+        stroke: { color: 0xffffff, width: 6, join: "round" },
       },
     });
 
-    this.my_info_button = new Button({ label: "내정보 보기", width: 440, height: 88, onClick: () => this.OnClickMyInfo() });
-    this.join_match_button = new Button({ label: "게임 참여", width: 440, height: 88, onClick: () => this.OnClickJoinMatch() });
+    this.title_text = new Text({
+      text: "멀티 게임!",
+      style: {
+        fill: CUTE_COLOR.orange,
+        fontSize: 64,
+        fontFamily: CUTE_FONT_FAMILY,
+        stroke: { color: 0xffffff, width: 11, join: "round" },
+        dropShadow: { color: CUTE_COLOR.orange_dark, alpha: 0.5, distance: 5, angle: Math.PI / 2, blur: 0 },
+      },
+    });
+    this.title_text.anchor.set(0.5, 0);
+
+    this.subtitle_text = new Text({
+      text: "게임을 골라 친구와 대결해요",
+      style: {
+        fill: CUTE_COLOR.shirt_dark,
+        fontSize: 22,
+        fontFamily: CUTE_FONT_FAMILY,
+        stroke: { color: 0xffffff, width: 6, join: "round" },
+      },
+    });
+    this.subtitle_text.anchor.set(0.5, 0);
+
+    // 로비 오리는 깃발 없이 통통 튀기만 한다.
+    this.duck.HideFlags();
+
+    this.menu_card = new Graphics()
+      .roundRect(0, 8, MENU_CARD_WIDTH, MENU_CARD_HEIGHT, 32)
+      .fill({ color: 0x000000, alpha: 0.08 })
+      .roundRect(0, 0, MENU_CARD_WIDTH, MENU_CARD_HEIGHT, 32)
+      .fill(CUTE_COLOR.cream)
+      .stroke({ color: CUTE_COLOR.shirt, width: 6 });
+
+    this.my_info_button = new Button({
+      label: "내정보 보기",
+      width: 440,
+      height: 88,
+      theme: CUTE_THEME,
+      onClick: () => this.OnClickMyInfo(),
+    });
+    this.join_match_button = new Button({
+      label: "게임 참여",
+      width: 440,
+      height: 88,
+      theme: CUTE_THEME,
+      onClick: () => this.OnClickJoinMatch(),
+    });
     this.cancel_match_button = new Button({
       label: "매칭 취소",
       width: 440,
       height: 88,
+      theme: CUTE_THEME,
       onClick: () => this.OnClickCancelMatch(),
     });
     this.rank_daily_button = new Button({
       label: "일간 랭킹",
       width: 210,
       height: 88,
+      theme: CUTE_THEME,
       onClick: () => this.OnClickRankDaily(),
     });
     this.rank_weekly_button = new Button({
       label: "주간 랭킹",
       width: 210,
       height: 88,
+      theme: CUTE_THEME,
       onClick: () => this.OnClickRankWeekly(),
     });
     this.my_info_button.visible = false;
@@ -159,6 +242,11 @@ export class LobbyScene implements Scene {
     this.rank_weekly_button.visible = false;
 
     this.view.addChild(
+      CreateCuteBackground(),
+      this.title_text,
+      this.subtitle_text,
+      this.duck,
+      this.menu_card,
       this.status,
       this.game_select,
       this.my_info_button,
@@ -194,21 +282,34 @@ export class LobbyScene implements Scene {
 
   public Resize(width: number, _height: number): void {
     const center_x = width / 2;
+    this.center_x = center_x;
+
+    this.title_text.position.set(center_x, TITLE_Y);
+    this.subtitle_text.position.set(center_x, TITLE_Y + 92);
+    this.duck.position.set(center_x, DUCK_FEET_Y);
+    this.menu_card.position.set(center_x - MENU_CARD_WIDTH / 2, MENU_CARD_Y);
 
     this.status.anchor.set(0.5, 0);
-    this.status.position.set(center_x, 300);
+    this.UpdateStatusPosition();
 
-    this.game_select.position.set(center_x - SELECT_WIDTH / 2, 490);
+    this.game_select.position.set(center_x - SELECT_WIDTH / 2, MENU_CARD_Y + 44);
 
-    this.my_info_button.position.set(center_x - this.my_info_button.width / 2, 600);
-    this.join_match_button.position.set(center_x - this.join_match_button.width / 2, 710);
-    this.cancel_match_button.position.set(center_x - this.cancel_match_button.width / 2, 710);
+    this.my_info_button.position.set(center_x - this.my_info_button.width / 2, MENU_CARD_Y + 136);
+    this.join_match_button.position.set(center_x - this.join_match_button.width / 2, MENU_CARD_Y + 246);
+    this.cancel_match_button.position.set(center_x - this.cancel_match_button.width / 2, MENU_CARD_Y + 246);
 
     const rank_gap = 20;
     const rank_row_width = this.rank_daily_button.width + rank_gap + this.rank_weekly_button.width;
     const rank_row_x = center_x - rank_row_width / 2;
-    this.rank_daily_button.position.set(rank_row_x, 820);
-    this.rank_weekly_button.position.set(rank_row_x + this.rank_daily_button.width + rank_gap, 820);
+    this.rank_daily_button.position.set(rank_row_x, MENU_CARD_Y + 356);
+    this.rank_weekly_button.position.set(rank_row_x + this.rank_daily_button.width + rank_gap, MENU_CARD_Y + 356);
+  }
+
+  // 메인 메뉴가 있으면 카드 아래, 없으면(접속 중 등) 빈 카드 가운데에 상태 문구를 둔다.
+  // 메인 메뉴가 떠 있는지는 따로 플래그를 두지 않고 항상 보이는 '내정보 보기' 버튼으로 판단한다.
+  private UpdateStatusPosition(): void {
+    const is_main_ui_shown = this.my_info_button.visible;
+    this.status.position.set(this.center_x, is_main_ui_shown ? STATUS_Y_WITH_MENU : STATUS_Y_WITHOUT_MENU);
   }
 
   public Destroy(): void {
@@ -229,7 +330,7 @@ export class LobbyScene implements Scene {
         // 수신 로그는 LobbyConnection 이 항상 남기므로(어떤 메시지든 누락 없이), 여기서는 화면 처리만 한다.
         onEnterLobbyResult: (envelope) => this.HandleEnterLobbyResult(envelope.payload),
         onNameResult: (envelope) => this.HandleNameResult(envelope.payload),
-        onPlayInfo: (envelope) => this.ShowInfoPopup("내 정보", FormatPayload(envelope.payload)),
+        onPlayInfo: (envelope) => this.ShowInfoPopup("내 정보", FormatPlayInfo(this.play_info_game, envelope.payload)),
         onRankDaily: (envelope) =>
           this.ShowInfoPopup(`일간 랭킹 (${envelope.payload.date})`, FormatRankList(envelope.payload.list, envelope.payload.my)),
         onRankWeekly: (envelope) =>
@@ -308,6 +409,7 @@ export class LobbyScene implements Scene {
     this.rank_daily_button.visible = false;
     this.rank_weekly_button.visible = false;
     this.game_select.Hide();
+    this.UpdateStatusPosition();
   }
 
   // ENTER_LOBBY 응답 처리. 실패(result:N)면 메시지만 보여주고, 성공(result:Y)이면 name 이 공백일 때
@@ -349,12 +451,14 @@ export class LobbyScene implements Scene {
 
   // 별명 등록까지 끝나면 접속/전달 버튼과 상태 텍스트를 지우고 필요한 버튼만 남긴다.
   private ShowMainUi(): void {
-    this.status.visible = false;
+    // 문구만 비우고 숨기지는 않는다 — 이후 SetStatus(재접속 실패 등)로 띄운 문구가 보여야 한다.
+    this.SetStatus("");
     this.my_info_button.visible = true;
     this.join_match_button.visible = true;
     this.rank_daily_button.visible = true;
     this.rank_weekly_button.visible = true;
     this.game_select.Show();
+    this.UpdateStatusPosition();
   }
 
   private OnClickRankDaily(): void {
@@ -371,6 +475,7 @@ export class LobbyScene implements Scene {
 
   private OnClickMyInfo(): void {
     const payload = { game: this.game_select.GetSelectedGame() };
+    this.play_info_game = payload.game;
     this.connection.SendPlayInfo(payload);
     console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "PLAY_INFO", payload })}`);
   }

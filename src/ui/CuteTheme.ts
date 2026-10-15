@@ -1,4 +1,4 @@
-// 가위바위보/오델로 공용 화면 컨셉(하늘색 셔츠·빨간 넥타이를 한 아기 오리 캐릭터) 색상표와 배경/이미지 도우미.
+// 로비/가위바위보/오델로/점핑 공용 화면 컨셉(하늘색 셔츠·빨간 넥타이를 한 아기 오리 캐릭터) 색상표와 배경/이미지 도우미.
 // 공용 UI 컴포넌트에는 CUTE_THEME 을 넘겨 같은 컨셉으로 그리게 한다.
 import { Assets, Container, FillGradient, Graphics, Text, Texture } from "pixi.js";
 import { GAME_WIDTH, GAME_HEIGHT, POP_FONT_FAMILY } from "../config";
@@ -47,6 +47,11 @@ export const CUTE_THEME: UiTheme = {
   value_color: CUTE_COLOR.brown,
   avatar_color: 0xdff1ff,
   avatar_text_color: CUTE_COLOR.shirt_dark,
+  error_color: CUTE_COLOR.red,
+  input_color: 0xffffff,
+  input_border_color: CUTE_COLOR.shirt,
+  input_text_color: CUTE_COLOR.brown,
+  spinner_color: CUTE_COLOR.orange,
 };
 
 // SVG 는 지정한 해상도로 래스터화되므로, 크게 띄워도 흐려지지 않게 2배로 불러온다.

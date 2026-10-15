@@ -1,7 +1,7 @@
 // 게임방에서 한 명의 사용자 정보(아바타/아이디/별명/승율)를 보여주는 패널. 게임 종류와 무관해서 공통 UI 에 둔다.
 import { Container, Graphics, Text } from "pixi.js";
 import type { RoomPlayerInfo } from "../common/types";
-import { DEFAULT_UI_THEME, type UiTheme } from "./UiTheme";
+import type { UiTheme } from "./UiTheme";
 
 export const AVATAR_SIZE = 160;
 const FONT_SIZE = 16;
@@ -16,7 +16,7 @@ export class PlayerPanel extends Container {
   private readonly win_per_text: Text;
   private readonly note_text: Text;
 
-  constructor(theme: UiTheme = DEFAULT_UI_THEME) {
+  constructor(theme: UiTheme) {
     super();
 
     const avatar_box = new Graphics().roundRect(0, 0, AVATAR_SIZE, AVATAR_SIZE, 12).fill(theme.avatar_color);

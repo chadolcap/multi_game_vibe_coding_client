@@ -281,6 +281,7 @@ export class OthelloScene implements Scene {
     this.connection_lost_popup = new ConnectionLostPopup({
       button_label: "로비로 접속",
       onConfirm: () => this.GoToLobbyOnce(),
+      theme: CUTE_THEME,
     });
 
     this.view.addChild(

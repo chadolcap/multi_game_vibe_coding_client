@@ -4,6 +4,7 @@
 import { Container, Graphics, Text } from "pixi.js";
 import { Button } from "./Button";
 import { GAME_WIDTH, GAME_HEIGHT } from "../config";
+import { DrawThemedPanel, ToCssColor, type UiTheme } from "./UiTheme";
 
 export interface NicknamePopupOptions {
   onSubmit: (name: string) => void;
@@ -24,38 +25,39 @@ export class NicknamePopup extends Container {
   private on_submit: ((name: string) => void) | null = null;
   private readonly reposition_input = () => this.RepositionInput();
 
-  constructor() {
+  constructor(theme: UiTheme) {
     super();
     this.visible = false;
 
     const dim = new Graphics().rect(0, 0, GAME_WIDTH, GAME_HEIGHT).fill({ color: 0x000000, alpha: 0.6 });
     dim.eventMode = "static"; // 뒤쪽 UI 클릭 차단(모달)
 
-    const panel = new Graphics().roundRect(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, 16).fill(0x22243a);
+    const panel = DrawThemedPanel(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, theme);
 
     const title = new Text({
       text: "별명 입력",
-      style: { fill: 0xffffff, fontSize: 28, fontFamily: "sans-serif", fontWeight: "bold" },
+      style: { fill: theme.title_color, fontSize: 28, fontFamily: theme.font_family, fontWeight: "bold" },
     });
     title.anchor.set(0.5, 0);
     title.position.set(GAME_WIDTH / 2, PANEL_Y + 32);
 
     const input_box = new Graphics()
       .roundRect(INPUT_BOX.x, INPUT_BOX.y, INPUT_BOX.width, INPUT_BOX.height, 8)
-      .fill(0x121320)
-      .stroke({ width: 2, color: 0x444a6a });
+      .fill(theme.input_color)
+      .stroke({ width: 3, color: theme.input_border_color });
 
     this.confirm_button = new Button({
       label: "확인",
       width: INPUT_BOX.width,
       height: 64,
+      theme,
       onClick: () => this.Submit(),
     });
     this.confirm_button.position.set(INPUT_BOX.x, INPUT_BOX.y + INPUT_BOX.height + 24);
 
     this.error_text = new Text({
       text: "",
-      style: { fill: 0xff6b6b, fontSize: 15, fontFamily: "sans-serif" },
+      style: { fill: theme.error_color, fontSize: 15, fontFamily: theme.font_family },
     });
     this.error_text.anchor.set(0.5, 0);
     this.error_text.position.set(GAME_WIDTH / 2, this.confirm_button.y + this.confirm_button.height + 16);
@@ -70,7 +72,8 @@ export class NicknamePopup extends Container {
     this.input_el.style.display = "none";
     this.input_el.style.boxSizing = "border-box";
     this.input_el.style.padding = "0 16px";
-    this.input_el.style.color = "#ffffff";
+    this.input_el.style.color = ToCssColor(theme.input_text_color);
+    this.input_el.style.fontFamily = theme.font_family;
     this.input_el.style.background = "transparent";
     this.input_el.style.border = "none";
     this.input_el.style.outline = "none";

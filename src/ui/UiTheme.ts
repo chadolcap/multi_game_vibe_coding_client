@@ -1,9 +1,11 @@
 // 공용 UI 컴포넌트(Button/PlayerPanel/배너/팝업)의 색·폰트 묶음.
-// 게임마다 화면 컨셉이 달라 같은 컴포넌트를 다른 색으로 쓰기 위해 둔다 — 지정하지 않으면
-// DEFAULT_UI_THEME(기존 어두운 화면 그대로)을 쓰므로 로비/오델로 화면은 바뀌지 않는다.
+// 게임마다 화면 컨셉이 달라 같은 컴포넌트를 다른 색으로 쓰기 위해 둔다 — 지금은 로비와 모든 게임 씬이
+// CUTE_THEME 을 넘긴다. 기존 어두운 기본 테마(DEFAULT_UI_THEME)는 아무도 쓰지 않아 없애고, 테마를 필수 인자로 받는다.
+import { Graphics } from "pixi.js";
+
 export interface UiTheme {
   font_family: string;
-  // 결과 수치처럼 줄 맞춤이 필요한 본문 폰트 (기본 테마는 monospace).
+  // 결과 수치처럼 줄 맞춤이 필요한 본문 폰트 (예전 기본 테마는 monospace, CUTE_THEME 은 제목과 같은 폰트).
   content_font_family: string;
   text_color: number;
   title_color: number;
@@ -27,27 +29,27 @@ export interface UiTheme {
   value_color: number;
   avatar_color: number;
   avatar_text_color: number;
+  // 오류/경고 문구(별명 등록 실패, 서버 연결 끊김 제목 등).
+  error_color: number;
+  // 입력창/선택 상자(별명 입력, 로비 게임 선택) 바탕·테두리·글자색.
+  input_color: number;
+  input_border_color: number;
+  input_text_color: number;
+  // 로딩 화면의 빙글빙글 도는 표시 색.
+  spinner_color: number;
 }
 
-export const DEFAULT_UI_THEME: UiTheme = {
-  font_family: "sans-serif",
-  content_font_family: "monospace",
-  text_color: 0xeaeaea,
-  title_color: 0xffffff,
-  accent_color: 0xffd257,
-  dim_alpha: 0.6,
-  panel_color: 0x22243a,
-  panel_border_color: null,
-  panel_radius: 16,
-  banner_bar_color: 0x2f6feb,
-  button_idle_color: 0x2f6feb,
-  button_hover_color: 0x4c86f5,
-  button_disabled_color: 0x555555,
-  button_text_color: 0xffffff,
-  button_radius: 8,
-  button_shadow_color: null,
-  label_color: 0x8fb8ff,
-  value_color: 0xeaeaea,
-  avatar_color: 0x2c2f4a,
-  avatar_text_color: 0xffffff,
-};
+// 팝업 패널 테두리 두께.
+const PANEL_BORDER_WIDTH = 6;
+
+// 0xRRGGBB 숫자 색을 HTML 오버레이(<input>/<select>) 스타일에 쓰는 "#rrggbb" 문자열로 바꾼다.
+export function ToCssColor(color: number): string {
+  return `#${color.toString(16).padStart(6, "0")}`;
+}
+
+// 팝업 패널(둥근 사각형 + 테마에 테두리 색이 있으면 테두리)을 그린다 — 팝업들이 같은 모양을 쓰도록 한곳에 둔다.
+export function DrawThemedPanel(x: number, y: number, width: number, height: number, theme: UiTheme): Graphics {
+  const panel = new Graphics().roundRect(x, y, width, height, theme.panel_radius).fill(theme.panel_color);
+  if (theme.panel_border_color !== null) panel.stroke({ color: theme.panel_border_color, width: PANEL_BORDER_WIDTH });
+  return panel;
+}

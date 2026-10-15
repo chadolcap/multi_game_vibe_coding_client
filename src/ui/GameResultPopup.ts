@@ -2,12 +2,12 @@
 import { Container, Graphics, Text } from "pixi.js";
 import { Button } from "./Button";
 import { GAME_WIDTH, GAME_HEIGHT } from "../config";
-import { DEFAULT_UI_THEME, type UiTheme } from "./UiTheme";
+import { DrawThemedPanel, type UiTheme } from "./UiTheme";
 
 export interface GameResultPopupOptions {
   onReplay: () => void;
   onExit: () => void;
-  theme?: UiTheme;
+  theme: UiTheme;
   // 팝업 크기/위치 — 지정하지 않으면 화면 가운데 큰 팝업(DEFAULT_RESULT_POPUP_LAYOUT).
   layout?: Partial<GameResultPopupLayout>;
 }
@@ -42,7 +42,7 @@ export class GameResultPopup extends Container {
   constructor(options: GameResultPopupOptions) {
     super();
     this.visible = false;
-    const theme = options.theme ?? DEFAULT_UI_THEME;
+    const theme = options.theme;
     const layout = { ...DEFAULT_RESULT_POPUP_LAYOUT, ...options.layout };
     const panel_width = layout.panel_width;
     const panel_height = layout.panel_height;
@@ -59,10 +59,7 @@ export class GameResultPopup extends Container {
       .fill({ color: 0x000000, alpha: layout.dim_alpha ?? theme.dim_alpha });
     dim.eventMode = "static"; // 뒤쪽 UI 클릭 차단(모달)
 
-    const panel = new Graphics()
-      .roundRect(panel_x, panel_y, panel_width, panel_height, theme.panel_radius)
-      .fill(theme.panel_color);
-    if (theme.panel_border_color !== null) panel.stroke({ color: theme.panel_border_color, width: 6 });
+    const panel = DrawThemedPanel(panel_x, panel_y, panel_width, panel_height, theme);
 
     const title = new Text({
       text: "게임 결과",

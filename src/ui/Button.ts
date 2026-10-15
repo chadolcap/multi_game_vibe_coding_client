@@ -1,13 +1,13 @@
 // 재사용 가능한 간단한 Pixi 버튼. 배경 사각형 + 라벨 텍스트.
 import { Container, Graphics, Text } from "pixi.js";
-import { DEFAULT_UI_THEME, type UiTheme } from "./UiTheme";
+import type { UiTheme } from "./UiTheme";
 
 export interface ButtonOptions {
   label: string;
   width?: number;
   height?: number;
   onClick: () => void;
-  theme?: UiTheme;
+  theme: UiTheme;
 }
 
 // 버튼 그림자(button_shadow_color)를 아래로 얼마나 내려 그릴지.
@@ -25,7 +25,7 @@ export class Button extends Container {
     super();
     this.width_ = options.width ?? 220;
     this.height_ = options.height ?? 56;
-    this.theme = options.theme ?? DEFAULT_UI_THEME;
+    this.theme = options.theme;
 
     this.background = new Graphics();
     this.text = new Text({

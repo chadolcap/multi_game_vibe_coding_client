@@ -1,7 +1,7 @@
 // ONE_RESULT 를 알리는 팝업 — 승/패/무승부를 잠깐 보여주고 자동으로 사라진다(타이머는 RpsScene 이 관리).
 import { Container, Graphics, Text } from "pixi.js";
 import { GAME_WIDTH, GAME_HEIGHT } from "../config";
-import { DEFAULT_UI_THEME, type UiTheme } from "./UiTheme";
+import type { UiTheme } from "./UiTheme";
 
 const PANEL_WIDTH = 560;
 const PANEL_HEIGHT = 260;
@@ -12,7 +12,7 @@ export class RoundResultBanner extends Container {
   private readonly detail_text: Text;
   private readonly winner_text: Text;
 
-  constructor(theme: UiTheme = DEFAULT_UI_THEME) {
+  constructor(theme: UiTheme) {
     super();
     this.visible = false;
 

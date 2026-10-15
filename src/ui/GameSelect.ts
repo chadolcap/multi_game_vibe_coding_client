@@ -4,6 +4,7 @@
 import { Container, Graphics } from "pixi.js";
 import { GameId } from "../common/types";
 import { GAME_WIDTH } from "../config";
+import { ToCssColor, type UiTheme } from "./UiTheme";
 
 interface GameOption {
   value: GameId;
@@ -18,6 +19,11 @@ const OPTIONS: GameOption[] = [
   { value: GameId.STEPPING, label: "점핑", enabled: true },
 ];
 
+// 게임 표시 이름(가위바위보/오델로/점핑) — 목록에 없으면 식별자를 그대로 쓴다.
+export function GetGameLabel(game: GameId): string {
+  return OPTIONS.find((option) => option.value === game)?.label ?? game;
+}
+
 export const SELECT_WIDTH = 440;
 const SELECT_HEIGHT = 64;
 const FONT_SIZE = 18;
@@ -26,14 +32,14 @@ export class GameSelect extends Container {
   private readonly select_el: HTMLSelectElement;
   private readonly reposition = () => this.Reposition();
 
-  constructor() {
+  constructor(theme: UiTheme) {
     super();
     this.visible = false;
 
     const box = new Graphics()
-      .roundRect(0, 0, SELECT_WIDTH, SELECT_HEIGHT, 8)
-      .fill(0x22243a)
-      .stroke({ width: 2, color: 0x444a6a });
+      .roundRect(0, 0, SELECT_WIDTH, SELECT_HEIGHT, theme.panel_radius / 2)
+      .fill(theme.input_color)
+      .stroke({ width: 3, color: theme.input_border_color });
     this.addChild(box);
 
     this.select_el = document.createElement("select");
@@ -41,7 +47,11 @@ export class GameSelect extends Container {
     this.select_el.style.display = "none";
     this.select_el.style.boxSizing = "border-box";
     this.select_el.style.padding = "0 12px";
-    this.select_el.style.color = "#ffffff";
+    this.select_el.style.color = ToCssColor(theme.input_text_color);
+    this.select_el.style.fontFamily = theme.font_family;
+    this.select_el.style.cursor = "pointer";
+    // OS/브라우저가 다크 모드여도 펼친 목록(네이티브)을 밝은 바탕으로 그리게 고정한다 — 갈색 글자가 어두운 바탕에 묻히지 않게.
+    this.select_el.style.colorScheme = "light";
     this.select_el.style.background = "transparent";
     this.select_el.style.border = "none";
     this.select_el.style.outline = "none";

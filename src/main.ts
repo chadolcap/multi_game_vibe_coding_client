@@ -9,6 +9,7 @@ import { GameId } from "./common/types";
 import { LoadingOverlay } from "./ui/LoadingOverlay";
 import { NoticeBanner } from "./ui/NoticeBanner";
 import { GAME_WIDTH, GAME_HEIGHT, POP_FONT_FAMILY } from "./config";
+import { CUTE_THEME } from "./ui/CuteTheme";
 import type { GameHandoff } from "./scenes/LobbyScene";
 
 // 캔버스 해상도는 720x1280 으로 고정하고, 실제 화면 크기에 맞춰 CSS 로만 배율을 조정한다
@@ -44,7 +45,7 @@ async function Main(): Promise<void> {
   mount.appendChild(app.canvas);
 
   // 로비 종료 ~ 게임 채널 접속 완료 사이에 씬이 바뀌어도 계속 위에 떠 있어야 하는 로딩 화면.
-  const loading_overlay = new LoadingOverlay();
+  const loading_overlay = new LoadingOverlay(CUTE_THEME);
   // 관리자 공지(SEND_NOTICE) — 로비/게임 어느 씬이든 화면 맨 위에 항상 뜰 수 있어야 한다.
   const notice_banner = new NoticeBanner();
   const scene_manager = new SceneManager(app, [loading_overlay, notice_banner]);

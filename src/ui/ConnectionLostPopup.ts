@@ -3,10 +3,12 @@
 import { Container, Graphics, Text } from "pixi.js";
 import { Button } from "./Button";
 import { GAME_WIDTH, GAME_HEIGHT } from "../config";
+import { DrawThemedPanel, type UiTheme } from "./UiTheme";
 
 export interface ConnectionLostPopupOptions {
   button_label: string;
   onConfirm: () => void;
+  theme: UiTheme;
 }
 
 const PANEL_WIDTH = 600;
@@ -22,15 +24,16 @@ export class ConnectionLostPopup extends Container {
   constructor(options: ConnectionLostPopupOptions) {
     super();
     this.visible = false;
+    const theme = options.theme;
 
     const dim = new Graphics().rect(0, 0, GAME_WIDTH, GAME_HEIGHT).fill({ color: 0x000000, alpha: 0.7 });
     dim.eventMode = "static"; // 뒤쪽 UI 클릭 차단(모달)
 
-    const panel = new Graphics().roundRect(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, 16).fill(0x22243a);
+    const panel = DrawThemedPanel(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, theme);
 
     const title = new Text({
       text: "서버와 연결할 수 없습니다",
-      style: { fill: 0xff6b6b, fontSize: 28, fontFamily: "sans-serif", fontWeight: "bold" },
+      style: { fill: theme.error_color, fontSize: 28, fontFamily: theme.font_family, fontWeight: "bold" },
     });
     title.anchor.set(0.5, 0);
     title.position.set(GAME_WIDTH / 2, PANEL_Y + 36);
@@ -38,9 +41,9 @@ export class ConnectionLostPopup extends Container {
     this.message_text = new Text({
       text: "",
       style: {
-        fill: 0xeaeaea,
+        fill: theme.text_color,
         fontSize: 20,
-        fontFamily: "sans-serif",
+        fontFamily: theme.font_family,
         wordWrap: true,
         wordWrapWidth: CONTENT_WIDTH,
         lineHeight: 30,
@@ -54,6 +57,7 @@ export class ConnectionLostPopup extends Container {
       label: options.button_label,
       width: CONTENT_WIDTH,
       height: 64,
+      theme,
       onClick: () => options.onConfirm(),
     });
     button.position.set(CONTENT_X, PANEL_Y + PANEL_HEIGHT - 64 - 32);
