@@ -85,12 +85,14 @@ const STATUS_WRAP_WIDTH = MENU_CARD_WIDTH - 60;
 // 첫 줄에 어느 게임의 전적인지 게임 이름을 쓴다.
 function FormatPlayInfo(game: GameId, payload: PlayInfoPayload): string {
   if (payload.result === "N") return `${GetGameLabel(game)}\n\n전적 정보를 불러오지 못했습니다.`;
+  // 청기백기(1인)는 win_count 에 이긴 판 수가 아니라 맞춘 문제 수를 쌓는다(엑셀 flag 시트 GAME_RESULT 비고).
+  const win_label = game === GameId.FLAG ? "맞춘 문제 수" : "게임 승리 수";
   return [
     GetGameLabel(game),
     `전체 게임 참여 수 : ${payload.total_game_count}`,
-    `전체 게임 승리 수 : ${payload.total_win_count}`,
+    `전체 ${win_label} : ${payload.total_win_count}`,
     `오늘 게임 참여 수 : ${payload.today_game_count}`,
-    `오늘 게임 승리 수 : ${payload.today_win_count}`,
+    `오늘 ${win_label} : ${payload.today_win_count}`,
   ].join("\n");
 }
 
@@ -515,7 +517,9 @@ export class LobbyScene implements Scene {
   private async HandleMatchFound(payload: MatchFoundPayload): Promise<void> {
     // 매칭이 성사됐으니 더 이상 취소할 수 없다.
     this.cancel_match_button.visible = false;
-    this.options.loading_overlay.Show(`매칭 완료! 상대: ${payload.opponent.name || "(이름 없음)"} — 게임 채널 접속 중...`);
+    // 혼자 하는 게임(청기백기)은 opponent 가 오지 않는다.
+    const opponent_text = payload.opponent ? ` 상대: ${payload.opponent.name || "(이름 없음)"} —` : "";
+    this.options.loading_overlay.Show(`매칭 완료!${opponent_text} 게임 채널 접속 중...`);
 
     try {
       const game_room = await this.connection.ConsumeMatchSeat(payload.seat_reservation);

@@ -28,6 +28,10 @@ function LogReceived(type: string | number, message: unknown): void {
   console.log(`${LOG_TAG} 서버에서 받은 내용 type=${String(type)} ${JSON.stringify(message)}`);
 }
 
+function LogSent(type: string, payload?: unknown): void {
+  console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify(payload === undefined ? { type } : { type, payload })}`);
+}
+
 export interface RpsEventHandlers {
   onEnterRoom?: (envelope: Envelope<EnterRoomPayload>) => void;
   onOutUser?: (envelope: Envelope<OutUserPayload>) => void;
@@ -120,20 +124,24 @@ export class RpsConnection {
   // 게임방 입장 정보 요청 (payload 없음).
   public SendEnterRoom(): void {
     this.room.send(MessageType.ENTER_ROOM);
+    LogSent(MessageType.ENTER_ROOM);
   }
 
   // 게임 준비/취소. ready:"N" 을 보내면 준비를 취소한다.
   public SendReady(payload: ReadyPayload): void {
     this.room.send(MessageType.READY, payload);
+    LogSent(MessageType.READY, payload);
   }
 
   // 가위/바위/보 선택 제출.
   public SendSelectGame(payload: SelectGamePayload): void {
     this.room.send(RpsMessageType.SELECT_GAME, payload);
+    LogSent(RpsMessageType.SELECT_GAME, payload);
   }
 
   // 최종 결과 후 재시작/나가기 선택 (같은 type 을 재사용한다).
   public SendReplay(payload: GameResultReplayPayload): void {
     this.room.send(MessageType.GAME_RESULT, payload);
+    LogSent(MessageType.GAME_RESULT, payload);
   }
 }

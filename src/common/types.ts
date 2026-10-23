@@ -31,7 +31,7 @@ export const MessageType = {
   RANK_WEEKLY: "RANK_WEEKLY", // C->S 요청({game}) / S->C 같은 type 재사용 — 주간 랭킹 상위 10명 + 내 정보
   ERROR: "ERROR", // S->C
 
-  // 관리자(Watcher) 채널 전용 — 로컬 엑셀 "관리자" 시트 + 서버 소스(server/src/common/types.ts) 기준.
+  // 관리자(Watcher) 채널 전용 — 로컬 엑셀 "관리자" 시트 + 서버 소스(server_ruflo/src/common/types.ts) 기준.
   // ADMIN_LOGIN 은 시트에는 없지만, 로그인 없이는 다른 관리자 메시지를 서버가 전부 무시하므로 필수다.
   ADMIN_LOGIN: "ADMIN_LOGIN", // C->S {id, password} / S->C 같은 type 재사용 {result:"Y"|"N"} — 실패 시 서버가 연결을 끊는다
   ADMIN_CHANNEL_COUNT: "ADMIN_CHANNEL_COUNT", // C->S 요청(payload 없음) / S->C {count: {room_name: 접속자수}}
@@ -115,6 +115,7 @@ export const GameId = {
   OTHELLO: "othello",
   STEPPING: "stepping", // 점핑 게임 (2026-10-14 추가, 엑셀 "stepping" 시트)
   AIRHOCKEY: "airhockey", // 에어하키 (2026-10-15 추가, 엑셀 "airhockey" 시트)
+  FLAG: "flag", // 청기백기 (2026-10-22 추가, 엑셀 "flag" 시트) — 혼자 하는 게임
 } as const;
 export type GameId = (typeof GameId)[keyof typeof GameId];
 
@@ -157,7 +158,8 @@ export interface MatchFoundPayload {
   room_name: string;
   room_id: string;
   seat_reservation: SeatReservation;
-  opponent: OpponentInfo;
+  // 혼자 하는 게임(청기백기)은 상대가 없어 서버가 생략한다 (2026-10-22, 서버 channelNames.SOLO_GAME_TYPES).
+  opponent?: OpponentInfo;
 }
 
 // ENTER_ROOM/OPPONENT_JOINED 응답에서 한 명의 정보. name(별명)은 문서에는 없었지만
@@ -252,7 +254,7 @@ export interface GameResultReplayPayload {
 }
 
 // ───────────────────────── 관리자(Watcher) ─────────────────────────
-// 로컬 엑셀 "관리자" 시트 + 서버 소스(server/src/common/types.ts) 기준. ADMIN_LOGIN 은 시트에 없어
+// 로컬 엑셀 "관리자" 시트 + 서버 소스(server_ruflo/src/common/types.ts) 기준. ADMIN_LOGIN 은 시트에 없어
 // 서버 소스 주석("문서는 추후 보강 예정")을 따른다.
 
 // ADMIN_LOGIN 으로 보내는 값 (C->S). 계정 정보는 서버 .env(ADMIN_ID/ADMIN_PASSWORD)로만 관리한다 —

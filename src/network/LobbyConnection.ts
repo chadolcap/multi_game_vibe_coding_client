@@ -32,6 +32,10 @@ function LogReceived(type: string | number, message: unknown): void {
   console.log(`${LOG_TAG} 서버에서 받은 내용 type=${String(type)} ${JSON.stringify(message)}`);
 }
 
+function LogSent(type: string, payload?: unknown): void {
+  console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify(payload === undefined ? { type } : { type, payload })}`);
+}
+
 export interface LobbyEventHandlers {
   // 화면에 그대로 보여줄 수 있도록 payload 만이 아니라 envelope 전체를 넘긴다.
   // 성공/실패 모두 같은 type(ENTER_LOBBY) 으로 온다 — payload.result 로 구분한다.
@@ -155,12 +159,14 @@ export class LobbyConnection {
   public SendEnterLobby(payload: EnterLobbyPayload): void {
     if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
     this.room.send(MessageType.ENTER_LOBBY, payload);
+    LogSent(MessageType.ENTER_LOBBY, payload);
   }
 
   // 별명 등록.
   public SendName(payload: NamePayload): void {
     if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
     this.room.send(MessageType.NAME, payload);
+    LogSent(MessageType.NAME, payload);
   }
 
   // 게임 참여/매칭 취소. select:"Y" 는 대기열 등록(응답 MATCH_FOUND 는 바로 오지 않고 다른 유저가
@@ -168,6 +174,7 @@ export class LobbyConnection {
   public SendJoinMatch(payload: JoinMatchPayload): void {
     if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
     this.room.send(MessageType.JOIN_MATCH, payload);
+    LogSent(MessageType.JOIN_MATCH, payload);
   }
 
   // MATCH_FOUND 로 받은 seat_reservation 으로 게임 채널에 새로 접속한다.
@@ -192,18 +199,21 @@ export class LobbyConnection {
   public SendPlayInfo(payload: PlayInfoQuery): void {
     if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
     this.room.send(MessageType.PLAY_INFO, payload);
+    LogSent(MessageType.PLAY_INFO, payload);
   }
 
   // 일간 랭킹 요청 — 어떤 게임의 랭킹을 볼지 game 으로 지정한다.
   public SendRankDaily(payload: RankQuery): void {
     if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
     this.room.send(MessageType.RANK_DAILY, payload);
+    LogSent(MessageType.RANK_DAILY, payload);
   }
 
   // 주간 랭킹 요청 — 어떤 게임의 랭킹을 볼지 game 으로 지정한다.
   public SendRankWeekly(payload: RankQuery): void {
     if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
     this.room.send(MessageType.RANK_WEEKLY, payload);
+    LogSent(MessageType.RANK_WEEKLY, payload);
   }
 
   // 씬이 파괴될 때 호출한다 — 콜백만 끊는다. 로비 연결은 매칭 성사 시 서버가 스스로 끊으므로 여기서 닫지 않는다.

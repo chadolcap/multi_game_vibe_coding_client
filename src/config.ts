@@ -1,5 +1,5 @@
 // 서버와 미리 약속된 네트워크 설정.
-// 서버 쪽 원본: server/src/common/config.ts, server/src/common/constants.ts
+// 서버 쪽 원본: server_ruflo/src/common/config.ts, server_ruflo/src/common/constants.ts
 // 로비 채널 주소/포트는 서버가 따로 알려주지 않으므로 클라이언트에 고정해 둔다.
 
 export const NETWORK_CONFIG = {

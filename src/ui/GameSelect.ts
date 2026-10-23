@@ -18,6 +18,7 @@ const OPTIONS: GameOption[] = [
   { value: GameId.OTHELLO, label: "오델로", enabled: true },
   { value: GameId.STEPPING, label: "점핑", enabled: true },
   { value: GameId.AIRHOCKEY, label: "에어하키", enabled: true },
+  { value: GameId.FLAG, label: "청기백기", enabled: true },
 ];
 
 // 게임 표시 이름(가위바위보/오델로/점핑) — 목록에 없으면 식별자를 그대로 쓴다.

@@ -25,6 +25,10 @@ function LogReceived(type: string | number, message: unknown): void {
   console.log(`${LOG_TAG} 서버에서 받은 내용 type=${String(type)} ${JSON.stringify(message)}`);
 }
 
+function LogSent(type: string, payload?: unknown): void {
+  console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify(payload === undefined ? { type } : { type, payload })}`);
+}
+
 export interface WatcherEventHandlers {
   onLoginResult?: (envelope: Envelope<AdminLoginResultPayload>) => void;
   onChannelCount?: (envelope: Envelope<AdminChannelCountPayload>) => void;
@@ -74,24 +78,29 @@ export class WatcherConnection {
   public SendAdminLogin(payload: AdminLoginPayload): void {
     if (!this.room) throw new Error("관리자 채널에 접속되어 있지 않습니다.");
     this.room.send(MessageType.ADMIN_LOGIN, payload);
+    // 관리자 비밀번호는 콘솔에 남기지 않는다.
+    LogSent(MessageType.ADMIN_LOGIN, { ...payload, password: "***" });
   }
 
   // 전체 채널(로비+게임)의 현재 접속자 수 요청 — 어떤 게임의 채널인지 game 으로 지정한다.
   public SendChannelCountRequest(payload: AdminChannelCountQuery): void {
     if (!this.room) throw new Error("관리자 채널에 접속되어 있지 않습니다.");
     this.room.send(MessageType.ADMIN_CHANNEL_COUNT, payload);
+    LogSent(MessageType.ADMIN_CHANNEL_COUNT, payload);
   }
 
   // 특정 채널(game + channel: "lobby_1" 등)의 접속자 목록 요청.
   public SendChannelUserRequest(payload: AdminChannelUserQuery): void {
     if (!this.room) throw new Error("관리자 채널에 접속되어 있지 않습니다.");
     this.room.send(MessageType.ADMIN_CHANNEL_USER, payload);
+    LogSent(MessageType.ADMIN_CHANNEL_USER, payload);
   }
 
   // 채널(로비/게임) 유저에게 공지 전송 — 응답 없음(발사 후 잊기).
   public SendNotice(payload: SendNoticePayload): void {
     if (!this.room) throw new Error("관리자 채널에 접속되어 있지 않습니다.");
     this.room.send(MessageType.SEND_NOTICE, payload);
+    LogSent(MessageType.SEND_NOTICE, payload);
   }
 
   public IsConnected(): boolean {

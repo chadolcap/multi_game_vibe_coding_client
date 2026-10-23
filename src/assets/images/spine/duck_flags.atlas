@@ -1,0 +1,54 @@
+duck_flags.png
+size: 1024,1024
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+body
+  rotate: false
+  xy: 2, 2
+  size: 210, 490
+  orig: 210, 490
+  offset: 0, 0
+  index: -1
+wing_R
+  rotate: false
+  xy: 576, 2
+  size: 124, 68
+  orig: 124, 68
+  offset: 0, 0
+  index: -1
+pole_R
+  rotate: false
+  xy: 214, 2
+  size: 179, 230
+  orig: 179, 230
+  offset: 0, 0
+  index: -1
+fist_R
+  rotate: false
+  xy: 826, 2
+  size: 39, 39
+  orig: 39, 39
+  offset: 0, 0
+  index: -1
+wing_L
+  rotate: false
+  xy: 702, 2
+  size: 122, 68
+  orig: 122, 68
+  offset: 0, 0
+  index: -1
+pole_L
+  rotate: false
+  xy: 395, 2
+  size: 179, 230
+  orig: 179, 230
+  offset: 0, 0
+  index: -1
+fist_L
+  rotate: false
+  xy: 867, 2
+  size: 39, 39
+  orig: 39, 39
+  offset: 0, 0
+  index: -1

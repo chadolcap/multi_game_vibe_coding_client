@@ -16,7 +16,7 @@ import {
   PLAYER_CARD_WIDTH,
   PLAYER_CARD_PADDING_X,
 } from "../../ui/CuteTheme";
-import { DuckMascot } from "../../ui/DuckMascot";
+import { RpsFlagDuck } from "./RpsFlagDuck";
 import { Confetti } from "../../ui/Confetti";
 import { GameResultPopup, RESULT_SCREEN_DIM_ALPHA } from "../../ui/GameResultPopup";
 import { GameStartBanner } from "../../ui/GameStartBanner";
@@ -63,8 +63,8 @@ export class RpsScene implements Scene {
   private readonly vs_text: Text;
   private readonly opponent_card = CreatePlayerCard("상대", CUTE_COLOR.shirt_dark);
   private readonly my_card = CreatePlayerCard("나", CUTE_COLOR.orange);
-  // 한 판 결과를 이긴 쪽 깃발을 들어 보여주는 오리 캐릭터 (왼쪽=상대, 오른쪽=나).
-  private readonly duck = new DuckMascot();
+  // 한 판 결과를 이긴 쪽 깃발을 들어 보여주는 오리 캐릭터 (왼쪽=상대, 오른쪽=나). 시트 이미지(duck_flags.png)의 그림을 바꿔 보여준다.
+  private readonly duck = new RpsFlagDuck();
   // 최종 결과(GAME_RESULT) 때 뿌리는 색종이.
   private readonly confetti = new Confetti();
   private readonly opponent_panel = new PlayerPanel(CUTE_THEME);
@@ -439,9 +439,9 @@ export class RpsScene implements Scene {
     // 별명을 아직 모르면(ENTER_ROOM 전에 결과가 온 경우) userid 로 대신 쓴다.
     const winner_name = (am_i_winner ? this.my_name : this.opponent_name) || payload.winner.userid;
     if (am_i_winner) {
-      this.duck.ShowFinalResult(winner_name, "최종 승리!", CUTE_COLOR.red);
+      this.duck.ShowFinalResult("right", winner_name, "최종 승리!", CUTE_COLOR.red);
     } else {
-      this.duck.ShowFinalResult(winner_name, "최종 패배", CUTE_COLOR.shirt_dark);
+      this.duck.ShowFinalResult("left", winner_name, "최종 패배", CUTE_COLOR.shirt_dark);
     }
     this.confetti.Play();
     this.rps_panel.visible = false;

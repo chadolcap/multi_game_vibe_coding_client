@@ -9,7 +9,7 @@ Colyseus 멀티플레이어 서버에 붙는 **PixiJS + TypeScript 클라이언�
 
 | 진입점 | 파일 | 설명 |
 | --- | --- | --- |
-| 게임 클라이언트 | `index.html` + `src/main.ts` | 로비 + 게임 4종 (Pixi) |
+| 게임 클라이언트 | `index.html` + `src/main.ts` | 로비 + 게임 5종 (Pixi) |
 | 관리자 페이지 | `admin.html` + `src/admin.ts` | Watcher 채널, 순수 DOM (Pixi 미사용) |
 
 | 게임 | GameId | 폴더 |
@@ -18,6 +18,7 @@ Colyseus 멀티플레이어 서버에 붙는 **PixiJS + TypeScript 클라이언�
 | 오델로 | `othello` | `src/games/othello/` |
 | 점핑 | `stepping` | `src/games/stepping/` |
 | 에어하키 | `airhockey` | `src/games/airhockey/` |
+| 청기백기 (1인) | `flag` | `src/games/flag/` |
 
 ## 명령어
 
@@ -39,7 +40,7 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 | 시트 | 내용 |
 | --- | --- |
 | `lobby` | 로비 채널 |
-| `rps` / `othello` / `stepping` / `airhockey` | 각 게임 채널 |
+| `rps` / `othello` / `stepping` / `airhockey` / `flag` | 각 게임 채널 |
 | `관리자` | Watcher 채널 (`admin.html`) |
 
 - **빨간 글씨** = 서버 개발자 확인/변경, **파란 글씨** = 클라이언트(이 저장소) 확인/변경.
@@ -53,7 +54,7 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 
 | 계층 | 위치 | 역할 |
 | --- | --- | --- |
-| Connection | `network/*Connection.ts`, `games/*/*Connection.ts` | Colyseus Room 래핑. 수신 로그 + 타입 있는 콜백만 제공 |
+| Connection | `network/*Connection.ts`, `games/*/*Connection.ts` | Colyseus Room 래핑. 송수신 로그 + 타입 있는 콜백만 제공 |
 | Scene | `scenes/*Scene.ts`, `games/*/*Scene.ts` | 씬 1개 = Connection 1개. 서버 이벤트로 UI 상태 갱신 |
 | UI | `ui/*.ts`, 게임 전용 UI | 순수 Pixi Container. 서버/네트워크를 모른다 |
 
@@ -66,20 +67,23 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 | `src/network/` | `LobbyConnection`, `WatcherConnection` |
 | `src/scenes/` | `SceneManager`, `LobbyScene` |
 | `src/ui/` | 공용 컴포넌트 — `Button`, `InfoPopup`, `GameResultPopup`, `GameStartBanner`, `RoundResultBanner`, `ConnectionLostPopup`, `NoticeBanner`, `LoadingOverlay`, `PlayerPanel`, `DuckMascot`(결과 오리), `Confetti`(색종이), `CuteTheme`/`UiTheme`(테마) |
-| `src/games/rps/` | `RpsScene`, `RpsConnection`, `RpsChoicePanel`, `types.ts` |
+| `src/games/rps/` | `RpsScene`, `RpsConnection`, `RpsChoicePanel`, `RpsFlagDuck`(중앙 오리 — 시트 `src/assets/images/sheet/duck_flags.png` 9프레임 중 4개), `types.ts` |
 | `src/games/othello/` | `OthelloScene`, `OthelloConnection`, `OthelloBoard`(8x8), `OthelloColorPanel`, `types.ts` |
 | `src/games/stepping/` | `SteppingScene`, `SteppingConnection`, `SteppingMap`(맵 생성), `SteppingView`(한 유저 플레이 화면), `types.ts` |
 | `src/games/airhockey/` | `AirhockeyScene`, `AirhockeyConnection`, `AirhockeyTable`(테이블 그리기 + 레버 드래그), `types.ts` |
+| `src/games/flag/` | `FlagScene`, `FlagConnection`, `FlagQuestPanel`(상단 문제 판넬), `FlagControlPanel`(좌우 올림/정지/내림 버튼), `FlagDuck`(시트 `src/assets/images/sheet/duck_flags.png` 9프레임 = 양손 올림/정지/내림), `types.ts` |
 
 ### 코드 규칙
 
-- **게임 전용 파일**은 `src/games/<게임명>/`에 두고, 클래스명에 게임 접두사(`Rps`, `Othello`, `Stepping`, `Airhockey`)를 붙인다.
+- **게임 전용 파일**은 `src/games/<게임명>/`에 두고, 클래스명에 게임 접두사(`Rps`, `Othello`, `Stepping`, `Airhockey`, `Flag`)를 붙인다.
 - **게임 전용 메시지**는 `games/<게임명>/types.ts`의 `<게임>MessageType`에 둔다. 방 공통 메시지는 `common/types.ts`를 재사용한다.
 - **메시지 형식**: S→C는 항상 `Envelope<P> = {type, payload, ts}`이다. C→S는 envelope 없이 `room.send(type, payload)`로 보낸다.
 - **로그는 Connection에서만 남긴다.**
   - 받은 메시지는 모두 `LogReceived()`가 `[Lobby]`/`[Game]`/`[Admin]` 태그로 남긴다. wildcard(`"*"`) 핸들러가 있어 새 타입도 로그된다.
+  - 보낸 메시지는 모두 `LogSent()`가 같은 태그로 남긴다("클라이언트에서 보낸 내용"). 새 `Send*()` 함수를 만들면 `room.send()` 바로 뒤에 붙인다.
   - 씬에는 로그를 추가하지 않는다.
-  - 예외: 에어하키 `PUCK_MOVE`/`LEVER_MOVE`는 너무 자주 와서 판마다 첫 `PUCK_MOVE`만 로그한다.
+  - 예외: 에어하키 `PUCK_MOVE`/`LEVER_MOVE`는 너무 자주 와서 판마다 첫 `PUCK_MOVE`만 로그한다. 보내는 `LEVER_MOVE`도 판마다 첫 번째만 남긴다.
+  - 예외: `ADMIN_LOGIN`은 `password`를 `***`로 가려서 남긴다.
 - **씬 파괴**: `Destroy()`가 `connection.Dispose()`로 콜백만 끊고, 연결은 닫지 않는다. 그 뒤 도착한 메시지는 로그만 남는다.
 - **좌표**: 디자인 해상도 720×1280(`config.ts`)으로 고정한다. `FitCanvasToWindow()`가 CSS로만 배율을 맞추므로 좌표 계산은 항상 720×1280 기준이다.
 - **타이머**: `setTimeout` 연출(배너 등)은 다음 서버 메시지가 오면 취소된다. 클라이언트 타이머를 진행 판단 근거로 쓰지 않는다.
@@ -162,6 +166,7 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 | 오델로 | `DOLL_SELECT_REMAIN_TIME` → `DOLL_SELECT` → 5초 뒤 `TURN_START{turn, can}` → `TURN_REMAIN_TIME` → `SELECT_GAME`(C→S `{select:{x,y}}` / S→C `{select, change}`) → 2초 뒤 다음 `TURN_START` |
 | 점핑 | `MAP_SELECT{map}` → 2초 뒤 `GAME_START` → `GAME_REMAIN_TIME`(60초) 동안 양쪽이 동시에 `MOVE_INFO` |
 | 에어하키 | 3초 뒤 `ONE_START` → `PUCK_MOVE`/`LEVER_MOVE` 실시간 → 골이면 `ONE_RESULT` → 3초 뒤 다음 `ONE_START` (3골 먼저 넣으면 승리) |
+| 청기백기 | 2초 뒤 `ONE_START{no,total}` → 1초 뒤 `QUEST_SHOW{quest,say,time}` → 답 한 번 `QUEST_SHOW{quest}`(C→S) → `ONE_RESULT{quest:Y/N,score,answer}` → 2초 뒤 다음 문제 (5문제, 마지막 판정 3초 뒤 `GAME_RESULT{score,correct_count,win_per}`) |
 
 **재접속 시 상태 복원** — 재접속한 당사자에게만 `GAME_STATUS`가 온다.
 
@@ -197,8 +202,25 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 | 역할 분담 | 서버가 퍽 물리를 계산한다(`PUCK_MOVE{loc}`, 30Hz). 클라이언트는 내 레버 좌표만 `LEVER_MOVE{loc}`로 보내고, 상대 레버는 `LEVER_MOVE{user, loc}`로 받는다 |
 | 좌표계 | 원점 = 테이블 정중앙, **y는 위쪽이 +**. 항상 내 기준(내 골대가 아래)이며 서버가 뒤집어 보내므로 클라이언트는 뒤집지 않는다 |
 | 크기 상수 | 테이블/퍽/레버 크기(`types.ts`)는 서버 `airhockeyConstants.ts`와 **반드시 같아야** 한다(충돌 판정 기준) |
+| 레버 무게 | 서버는 `LEVER_MOVE` 좌표를 "손"으로 보고 레버가 τ=0.05초 지연으로 따라간다. 클라이언트는 **손가락 위치를 그대로 보내고**, 내 레버를 그릴 때만 같은 공식(`AirhockeyTable` `LEVER_WEIGHT_MS`)으로 늦춘다. 상대 레버는 다시 늦추지 않는다 |
 | 판 시작 레버 | `ONE_START`를 받으면 퍽 위/아래 `ROUND_START_OFFSET`(300) 자리를 첫 `LEVER_MOVE`로 보낸다. 서버는 그 판의 첫 `LEVER_MOVE` 좌표에 레버를 바로 놓는다 |
 | 퍽 정체 | 퍽이 오래 제자리면 서버가 그 판을 다시 시작한다(`ONE_START` 재수신). 계속 진행되지 않으면 `GAME_RESULT{draw:"Y"}`로 끝난다 |
+
+### 청기백기 (1인)
+
+| 항목 | 내용 |
+| --- | --- |
+| 매칭 | 혼자 하는 게임이라 `JOIN_MATCH` 즉시 1인 방이 생긴다. `MATCH_FOUND.opponent`·`ENTER_ROOM.player2`가 없다(`FlagEnterRoomPayload`). `OUT_USER`/`OPPONENT_JOINED`/`GAME_STATUS`는 오지 않는다 |
+| 깃발 방향 | `b` = 청기 = **오리 오른손** = 화면 왼쪽, `w` = 백기 = 오리 왼손 = 화면 오른쪽(오리 기준) |
+| 깃발 값 | 1 올림 / 0 정지 / -1 내림. 답에서 안 누른 깃발은 키를 뺀다(`ONE_RESULT.answer`에선 `null`). 오리는 0·`null` 모두 깃발을 수평으로 그린다 |
+| 문제 | `QUEST_SHOW{quest, say, time}`. 문장과 판정은 **`say`** 로 한다. `quest`는 대표 정답 포즈일 뿐이다 |
+| 문구·정답 | 깃발마다 `up` 올려 → 올림 / `down` 내려 → 내림 / `no_up` 올리지마 → 내림·정지 / `no_down` 내리지마 → 올림·정지 / `""` 말 안 함 → 안 누름·정지. 양손 정지 문제도 나온 깃발은 버튼을 눌러야 정답 |
+| 버튼 | 깃발마다 올림 / 정지 / 내림 3개(`FlagControlPanel`). 문제가 나와 있는 동안 누를 수 있다 |
+| 답 | 문제에 나온 깃발 수(`say`가 `""`가 아닌 깃발)만큼 서로 다른 깃발을 누르면 **한 번에** `QUEST_SHOW{quest}`로 보내고 버튼을 끈다(예 `{quest:{b:1, w:0}}`, `{quest:{b:1}}`). 보내기 전에 같은 깃발을 다시 누르면 나중 값. 서버는 처음 온 답 하나로 바로 판정하고, 제한 시간 안에 답이 없으면 N |
+| 시간 막대 | `QUEST_SHOW.time`(5초) 연출일 뿐이다. 판정 시각은 서버가 정한다 |
+| 점수 / 정답률 | 맞춘 수 × 5. `win_per`와 `PLAY_INFO`의 `win_count`는 **맞춘 문제 수** 기준이다(로비 내정보에 "맞춘 문제 수"로 표시) |
+| 나가기 | 게임 중 '나가기' = `room.leave()`. 서버가 그때까지 맞춘 점수로 저장하고 방을 없앤다. **재접속 없음**(F5 도 새로 시작) |
+| 오리 그림 | `duck_flags.png`(투명 배경, 가위바위보와 공용) + `duck_flags.json`(`frames` 9개, 330×260). 파일명 right/left = 오리 기준 손(right = 청기), up/stop/down = 1/0/-1. 청기백기는 9프레임 전부(`FlagDuck` `POSE_TABLE`), 가위바위보는 `01`/`03`/`04`/`06` 4개만 쓴다. 모든 프레임의 발 위치가 같다 — 그림을 바꾸면 `DUCK_FEET`·`SHEET_DUCK_HEIGHT`를 다시 재야 한다 |
 
 ## 관리자(Watcher) 페이지
 
@@ -218,8 +240,7 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 
 | 경로 | 비고 |
 | --- | --- |
-| `../server_ruflo` | 현재 실행 중인 서버 — 게임 4종 구현, 메시지 타입 원본(`src/game/<게임>/<게임>Types.ts`) |
-| `../server` | 일부 공통 파일 주석(`config.ts`, `channelNames.ts` 등)이 가리키는 서버 원본 경로 |
+| `../server_ruflo` | 실행 중인 서버 — 게임 5종, 메시지 타입 원본(`src/game/<게임>/<게임>Types.ts`), 공통 원본(`src/common/config.ts`, `channelNames.ts`, `types.ts` 등) |
 
-- 둘 다 **참고용으로만 읽고 절대 수정하지 않는다.**
+- **참고용으로만 읽고 절대 수정하지 않는다.**
 - 클라이언트 규칙이 서버와 어긋나 보이면 파일 주석에 적힌 서버 원본부터 확인한다.

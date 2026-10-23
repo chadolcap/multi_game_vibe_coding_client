@@ -1,5 +1,5 @@
 // 채널 번호 -> 룸 이름 변환.
-// 서버 쪽 원본: server/src/common/channelNames.ts (규칙이 바뀌면 양쪽을 함께 수정한다)
+// 서버 쪽 원본: server_ruflo/src/common/channelNames.ts (규칙이 바뀌면 양쪽을 함께 수정한다)
 
 import { GameId } from "./types";
 

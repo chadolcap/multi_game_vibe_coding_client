@@ -49,6 +49,13 @@ const SNAP_DISTANCE = 400;
 const SEND_INTERVAL_MS = 33;
 // 골 문구가 떠 있는 시간.
 const GOAL_TEXT_MS = 1600;
+// 레버 무게(ms) — 서버 AIRHOCKEY_LEVER_WEIGHT_SEC(0.05초)와 반드시 같아야 한다(2026-10-22 사용자 요청 "레버가 너무 가볍다").
+// 서버는 손가락 위치(LEVER_MOVE)를 "손"으로 보고, 레버가 그 손을 매 틱 (손 - 레버) × (1 - e^(-dt/τ)) 만큼 늦게 따라간다.
+// 그래서 보내는 값은 손가락 위치 그대로 두고, 내 레버를 그릴 때만 같은 공식으로 늦춰야 화면 레버와 서버 판정 레버가 맞는다.
+// 상대 레버(LEVER_MOVE 중계)는 이미 무게가 적용된 서버 좌표라 다시 늦추지 않는다.
+const LEVER_WEIGHT_MS = 50;
+// 손과 이보다 가까우면 손 자리에 딱 맞춰 멈춘다(서버 AIRHOCKEY_LEVER_SETTLE_DISTANCE).
+const LEVER_SETTLE_DISTANCE = 0.5;
 
 export interface AirhockeyTableOptions {
   // 내 레버를 움직였을 때(서버로 보낼 내 기준 좌표, 정수).
@@ -75,6 +82,8 @@ export class AirhockeyTable extends Container {
   private readonly puck_pos: SmoothPoint = { x: 0, y: 0, target_x: 0, target_y: 0 };
   private readonly opponent_pos: SmoothPoint = { x: 0, y: HALF_HEIGHT - LEVER_HOME_OFFSET, target_x: 0, target_y: HALF_HEIGHT - LEVER_HOME_OFFSET };
   // 내 레버는 손가락 위치를 바로 따라간다(서버 왕복을 기다리면 조작감이 나빠진다).
+  // my_hand = 손가락 위치(서버로 보내는 값), my_pos = 화면에 그리는 레버(my_hand 를 LEVER_WEIGHT_MS 만큼 늦게 따라간다).
+  private my_hand: AirhockeyPoint = { x: 0, y: -HALF_HEIGHT + LEVER_HOME_OFFSET };
   private my_pos: AirhockeyPoint = { x: 0, y: -HALF_HEIGHT + LEVER_HOME_OFFSET };
 
   private playable = false;
@@ -209,8 +218,10 @@ export class AirhockeyTable extends Container {
   }
 
   // 내 레버 위치를 정한다(재접속 복원 등). 서버에도 이 위치를 알린다.
+  // 무게 없이 바로 놓는다 — 판의 첫 LEVER_MOVE 를 서버도 그 자리에 바로 놓는다(SnapLever).
   public SetMyLever(loc: AirhockeyPoint): void {
-    this.my_pos = ClampMyLever(loc);
+    this.my_hand = ClampMyLever(loc);
+    this.my_pos = { ...this.my_hand };
     this.send_pending = true;
     this.ApplyPositions();
   }
@@ -272,9 +283,8 @@ export class AirhockeyTable extends Container {
 
   private MoveMyLeverTo(event: FederatedPointerEvent): void {
     const local = this.field.toLocal(event.global);
-    this.my_pos = ClampMyLever({ x: local.x, y: -local.y });
+    this.my_hand = ClampMyLever({ x: local.x, y: -local.y });
     this.send_pending = true;
-    this.ApplyPositions();
   }
 
   // --- 매 프레임 ---
@@ -286,6 +296,7 @@ export class AirhockeyTable extends Container {
       point.x += (point.target_x - point.x) * ease;
       point.y += (point.target_y - point.y) * ease;
     }
+    this.FollowMyHand(delta_ms);
     this.ApplyPositions();
     this.FlushLeverMove();
 
@@ -299,13 +310,26 @@ export class AirhockeyTable extends Container {
     }
   };
 
-  // 바뀐 내 레버 위치를 SEND_INTERVAL_MS 마다 한 번씩만 보낸다(같은 좌표는 다시 보내지 않는다).
+  // 그리는 내 레버가 손가락을 무게만큼 늦게 따라간다 — 서버 ComputeLeverMove / GetLeverFollowRatio 와 같은 공식.
+  private FollowMyHand(delta_ms: number): void {
+    const gap_x = this.my_hand.x - this.my_pos.x;
+    const gap_y = this.my_hand.y - this.my_pos.y;
+    if (Math.hypot(gap_x, gap_y) <= LEVER_SETTLE_DISTANCE) {
+      this.my_pos = { ...this.my_hand };
+      return;
+    }
+    const follow = 1 - Math.exp(-delta_ms / LEVER_WEIGHT_MS);
+    this.my_pos = { x: this.my_pos.x + gap_x * follow, y: this.my_pos.y + gap_y * follow };
+  }
+
+  // 바뀐 손가락 위치를 SEND_INTERVAL_MS 마다 한 번씩만 보낸다(같은 좌표는 다시 보내지 않는다).
+  // 무게는 서버가 적용하므로 늦춘 레버(my_pos)가 아니라 손가락 위치(my_hand)를 보낸다.
   private FlushLeverMove(): void {
     if (!this.send_pending) return;
     const now = performance.now();
     if (now - this.last_sent_at < SEND_INTERVAL_MS) return;
     this.send_pending = false;
-    const loc = { x: Math.round(this.my_pos.x), y: Math.round(this.my_pos.y) };
+    const loc = { x: Math.round(this.my_hand.x), y: Math.round(this.my_hand.y) };
     if (this.last_sent && this.last_sent.x === loc.x && this.last_sent.y === loc.y) return;
     this.last_sent = loc;
     this.last_sent_at = now;
