@@ -9,6 +9,7 @@ import {
   AIRHOCKEY_GOAL_WIDTH,
   AIRHOCKEY_LEVER_RADIUS,
   AIRHOCKEY_PUCK_RADIUS,
+  AIRHOCKEY_SERVE_PUCK_OFFSET,
   AIRHOCKEY_TABLE_HEIGHT,
   AIRHOCKEY_TABLE_WIDTH,
   type AirhockeyPoint,
@@ -28,6 +29,8 @@ const LEVER_HOME_OFFSET = 180;
 // 한 판(ONE_START) 시작 때 레버 자리 = 퍽(가운데)에서 위/아래로 이만큼 떨어진 곳(중심 간 거리, 사용자 결정 2026-10-15).
 // 퍽 반지름 30 + 레버 반지름 60 = 90 이라 가장자리 사이에는 210 이 빈다.
 // 150(두 레버 간격 300) 은 너무 가까워 두 배(간격 600)로 늘렸다(사용자 결정 2026-10-15).
+// 2026-10-29 부터 퍽은 서브 쪽 ±AIRHOCKEY_SERVE_PUCK_OFFSET(200)에서 시작한다 — 서브하는 내 레버와 퍽 중심 거리는 100,
+// 가장자리 사이는 10 이라 판 시작 때 서로 닿지 않는다.
 // ⚠️ 서버는 ONE_START 때 레버 자리를 정하지 않는다 — 대신 그 판의 첫 LEVER_MOVE 좌표에 레버를 바로 놓으므로(SnapLever),
 //    클라이언트가 ONE_START 를 받자마자 이 자리를 첫 LEVER_MOVE 로 보내서 맞춘다.
 const ROUND_START_OFFSET = 300;
@@ -181,10 +184,16 @@ export class AirhockeyTable extends Container {
     this.goal_text.visible = false;
   }
 
-  // 한 판 시작(ONE_START) — 퍽은 가운데, 두 레버는 퍽 위/아래 ROUND_START_OFFSET 자리에 놓는다.
+  // 퍽을 서브 자리(중앙에서 서브할 유저 쪽으로 AIRHOCKEY_SERVE_PUCK_OFFSET)에 보간 없이 놓는다.
+  // 서버도 같은 자리에 놓고 PUCK_MOVE 를 한 번 보내 준다 — 미리 놓아 두면 골대에서 미끄러져 오는 연출이 생기지 않는다.
+  public PlaceServePuck(is_my_serve: boolean): void {
+    this.SnapPuck({ x: 0, y: is_my_serve ? -AIRHOCKEY_SERVE_PUCK_OFFSET : AIRHOCKEY_SERVE_PUCK_OFFSET });
+  }
+
+  // 한 판 시작(ONE_START) — 퍽은 서브 자리, 두 레버는 가운데 위/아래 ROUND_START_OFFSET 자리에 놓는다.
   // 내 레버 자리는 서버에도 보낸다(상대 클라이언트도 같은 일을 하므로 상대 레버는 곧 서버가 중계해 준 위치로 맞춰진다).
-  public PlaceForRoundStart(): void {
-    this.SnapPuck({ x: 0, y: 0 });
+  public PlaceForRoundStart(is_my_serve: boolean): void {
+    this.PlaceServePuck(is_my_serve);
     this.SetOpponentLever({ x: 0, y: ROUND_START_OFFSET }, true);
     this.opponent_hold_until = performance.now() + ROUND_START_HOLD_MS;
     this.SetMyLever({ x: 0, y: -ROUND_START_OFFSET });

@@ -1,5 +1,6 @@
 // 에어하키 게임방 씬 — 씬이 만들어지면 바로 ENTER_ROOM 을 요청하고, 응답을 받으면 위쪽에 상대/내 정보를 표시한 뒤
-// '게임 준비' 버튼을 활성화한다. 양쪽 준비가 끝나면 GAME_START -> (3초) -> ONE_START 부터 실시간으로 진행한다:
+// '게임 준비' 버튼을 활성화한다. 양쪽 준비가 끝나면 SERVE_SELECT(동전 던지기로 첫 서브 결정) -> (5초) -> GAME_START
+// -> (3초) -> ONE_START{serve} 부터 실시간으로 진행한다. 판마다 퍽은 서브할 유저 쪽에 멈춘 채로 놓인다:
 // 서버가 퍽 물리를 계산해 PUCK_MOVE 로 보내고, 나는 내 레버 좌표(LEVER_MOVE)만 보내며, 상대 레버는 서버가 중계한다.
 // 골이 나면 ONE_RESULT -> (3초) -> 다음 ONE_START, 누군가 3골을 넣으면 GAME_RESULT 로 끝난다.
 // 테이블은 내 골대가 아래, 상대 골대가 위다(서버가 좌표를 받는 유저 기준으로 뒤집어 보낸다).
@@ -24,6 +25,7 @@ import { DuckMascot } from "../../ui/DuckMascot";
 import { Confetti } from "../../ui/Confetti";
 import { AirhockeyConnection } from "./AirhockeyConnection";
 import { AirhockeyTable, TABLE_SCREEN_WIDTH, TABLE_SCREEN_HEIGHT, WALL_THICKNESS } from "./AirhockeyTable";
+import { AirhockeyCoinToss } from "./AirhockeyCoinToss";
 import type { EnterRoomPayload, OutUserPayload, OpponentJoinedPayload } from "../../common/types";
 import {
   AIRHOCKEY_WIN_GOALS,
@@ -31,7 +33,9 @@ import {
   type AirhockeyGameStatusPayload,
   type AirhockeyLeverMoveResultPayload,
   type AirhockeyOneResultPayload,
+  type AirhockeyOneStartPayload,
   type AirhockeyPoint,
+  type AirhockeyServeSelectPayload,
 } from "./types";
 
 const LOG_TAG = "[Game]";
@@ -98,6 +102,8 @@ export class AirhockeyScene implements Scene {
   private readonly confetti = new Confetti();
   private readonly ready_button: Button;
   private readonly game_start_banner = new GameStartBanner(CUTE_THEME);
+  // SERVE_SELECT 때 첫 서브 유저를 보여주는 동전 던지기 연출. GAME_START 가 오면 내린다.
+  private readonly coin_toss = new AirhockeyCoinToss();
   private readonly result_popup: GameResultPopup;
   private readonly back_to_lobby_button: Button;
   private readonly connection_lost_popup: ConnectionLostPopup;
@@ -111,6 +117,8 @@ export class AirhockeyScene implements Scene {
   private opponent_name = "";
   private my_goals = 0;
   private opponent_goals = 0;
+  // 지금 판(아직 판 전이면 첫 판)의 서브 유저 — SERVE_SELECT / ONE_START / GAME_STATUS 로 받는다. 퍽 시작 자리를 정한다.
+  private serve_userid = "";
   // '재시작'을 눌러서 응답을 기다리는 중인지 — 이 상태에서 OUT_USER 를 받으면 새 상대를 기다리는 상태로 넘어간다.
   private has_requested_replay = false;
   // 결과 화면에서 내가 재시작/나가기를 고르기 전에 상대가 먼저 나간 경우.
@@ -247,6 +255,7 @@ export class AirhockeyScene implements Scene {
       this.duck,
       this.back_to_lobby_button,
       this.confetti,
+      this.coin_toss,
       this.game_start_banner,
       this.connection_lost_popup
     );
@@ -256,8 +265,9 @@ export class AirhockeyScene implements Scene {
     this.connection.Listen({
       onEnterRoom: (envelope) => this.HandleEnterRoom(envelope.payload),
       onOutUser: (envelope) => this.HandleOutUser(envelope.payload),
+      onServeSelect: (envelope) => this.HandleServeSelect(envelope.payload),
       onGameStart: () => this.HandleGameStart(),
-      onOneStart: () => this.HandleOneStart(),
+      onOneStart: (envelope) => this.HandleOneStart(envelope.payload),
       onPuckMove: (envelope) => this.table.SetPuck(envelope.payload.loc),
       onLeverMove: (envelope) => this.HandleLeverMove(envelope.payload),
       onOneResult: (envelope) => this.HandleOneResult(envelope.payload),
@@ -294,6 +304,7 @@ export class AirhockeyScene implements Scene {
     this.back_to_lobby_button.position.set(center_x - this.back_to_lobby_button.width / 2, button_y);
     // 오리는 발 가운데가 기준점이라, 몸통이 테이블 한가운데에 오도록 발을 가운데보다 조금 아래에 둔다.
     this.duck.position.set(center_x, table_center_y + 110);
+    this.coin_toss.SetCenter(center_x, table_center_y);
     this.status.position.set(center_x, TABLE_Y + TABLE_SCREEN_HEIGHT + WALL_THICKNESS + 8);
     this.rejoin_notice.position.set(center_x, TABLE_Y + TABLE_SCREEN_HEIGHT + WALL_THICKNESS + 38);
   }
@@ -383,7 +394,27 @@ export class AirhockeyScene implements Scene {
     this.status.text = "상대의 준비를 기다리는 중...";
   }
 
-  // 양쪽 READY(또는 둘 다 재시작) — 테이블을 처음 상태로 깔고 레버를 움직일 수 있게 한다.
+  // 양쪽 READY(또는 둘 다 재시작) 직후 — 서버가 동전 던지기로 정한 첫 서브 유저. 5초 뒤 GAME_START 가 온다.
+  // 테이블을 처음 상태로 깔고(퍽은 서브 쪽) 동전 던지기 연출을 띄운다. 동전에는 서브 유저의 별명을 쓴다.
+  private HandleServeSelect(payload: AirhockeyServeSelectPayload): void {
+    this.has_requested_replay = false;
+    this.opponent_left_at_result = false;
+    this.ready_button.visible = false;
+    this.back_to_lobby_button.visible = false;
+    this.result_popup.Hide();
+    this.HideRejoinNotice();
+
+    this.serve_userid = payload.userid;
+    this.ResetPlayState();
+    this.status.text = "동전 던지기로 먼저 서브할 사람을 정해요!";
+
+    const me = { name: this.my_name || "나", color: CUTE_COLOR.orange };
+    const opponent = { name: this.opponent_name || "상대", color: CUTE_COLOR.shirt_dark };
+    const is_my_serve = this.IsMyServe();
+    this.coin_toss.Play(is_my_serve ? opponent : me, is_my_serve ? me : opponent);
+  }
+
+  // 동전 던지기 5초 뒤 — 테이블을 처음 상태로 깔고 레버를 움직일 수 있게 한다.
   // 퍽은 3초 뒤 ONE_START 부터 움직인다(그 전에도 레버는 서버가 받아 상대 화면에 보여준다).
   private HandleGameStart(): void {
     this.has_requested_replay = false;
@@ -392,6 +423,7 @@ export class AirhockeyScene implements Scene {
     this.back_to_lobby_button.visible = false;
     this.result_popup.Hide();
     this.HideRejoinNotice();
+    this.coin_toss.Hide();
 
     this.ResetPlayState();
     this.table.SetPlayable(true);
@@ -403,14 +435,20 @@ export class AirhockeyScene implements Scene {
     this.banner_timer = setTimeout(() => this.HideGameStartBanner(), GAME_START_BANNER_DURATION_MS);
   }
 
-  // 한 판(한 골) 시작 — 퍽이 가운데에 멈춘 채로 놓인다. 먼저 친 쪽이 선공이다.
-  // 레버는 퍽 위/아래 시작 자리로 옮기고, 내 레버를 다시 잡아야 움직인다(AirhockeyTable.PlaceForRoundStart).
-  private HandleOneStart(): void {
+  // 한 판(한 골) 시작 — 퍽이 서브할 유저(serve) 쪽에 멈춘 채로 놓인다. 받는 쪽 레버는 중앙선을 못 넘어 먼저 칠 수 없다.
+  // 레버는 가운데 위/아래 시작 자리로 옮기고, 내 레버를 다시 잡아야 움직인다(AirhockeyTable.PlaceForRoundStart).
+  private HandleOneStart(payload: AirhockeyOneStartPayload): void {
     this.HideGameStartBanner();
+    this.coin_toss.Hide();
+    this.serve_userid = payload.serve;
     this.table.HideGoalText();
-    this.table.PlaceForRoundStart();
+    this.table.PlaceForRoundStart(this.IsMyServe());
     this.table.SetPlayable(true);
-    this.ShowRoundMessage("시작!");
+    this.ShowRoundMessage(this.IsMyServe() ? "내 서브!" : "상대 서브!");
+  }
+
+  private IsMyServe(): boolean {
+    return this.serve_userid === this.options.my_userid;
   }
 
   private HandleLeverMove(payload: AirhockeyLeverMoveResultPayload): void {
@@ -449,6 +487,7 @@ export class AirhockeyScene implements Scene {
   private HandleGameStatus(payload: AirhockeyGameStatusPayload): void {
     this.ready_button.visible = false;
     // 재접속 안내("별명님 재접속했습니다.")는 여기서 지우지 않는다 — 5초 타이머가 지운다.
+    if (payload.serve !== undefined) this.serve_userid = payload.serve;
     const my_lever = this.is_player1_me ? payload.LEVER0 : payload.LEVER1;
     const opponent_lever = this.is_player1_me ? payload.LEVER1 : payload.LEVER0;
     this.table.SnapPuck(payload.puck.loc);
@@ -491,7 +530,9 @@ export class AirhockeyScene implements Scene {
     this.connection.SendReplay({ replay: "Y" });
     console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "Y" } })}`);
 
-    // 재시작을 고르면 이전 판 화면을 바로 비운다(새 판은 GAME_START 에서 처음 상태로 시작한다).
+    // 재시작을 고르면 이전 판 화면을 바로 비운다(새 판은 SERVE_SELECT 에서 처음 상태로 시작한다).
+    // 첫 서브는 새로 정해지므로(같은 상대면 교대, 새 상대면 동전 던지기) 이전 서브 유저는 잊는다 — 퍽은 가운데.
+    this.serve_userid = "";
     this.ResetPlayState();
 
     // 상대가 이미 나간 상태였다면 그 상대의 응답을 다시 기다릴 필요가 없으니 바로 대기 상태로 넘어간다.
@@ -576,11 +617,12 @@ export class AirhockeyScene implements Scene {
     this.confetti.Stop();
   }
 
-  // 새 경기 상태로 되돌린다 — 점수 0:0, 퍽은 가운데, 레버는 각자 골대 앞.
+  // 새 경기 상태로 되돌린다 — 점수 0:0, 퍽은 가운데(첫 서브 유저를 알면 그 쪽 서브 자리), 레버는 각자 골대 앞.
   private ResetPlayState(): void {
     this.HideFinalDuck();
     this.table.SetPlayable(false);
     this.table.ResetPositions();
+    if (this.serve_userid !== "") this.table.PlaceServePuck(this.IsMyServe());
     this.table.SetMessage("");
     this.ClearRoundMessage();
     this.my_goals = 0;
@@ -594,6 +636,7 @@ export class AirhockeyScene implements Scene {
     this.table.HideGoalText();
     this.ClearRoundMessage();
     this.HideGameStartBanner();
+    this.coin_toss.Hide();
     this.HideFinalDuck();
   }
 

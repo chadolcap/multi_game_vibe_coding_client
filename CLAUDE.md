@@ -70,7 +70,7 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 | `src/games/rps/` | `RpsScene`, `RpsConnection`, `RpsChoicePanel`, `RpsFlagDuck`(중앙 오리 — 시트 `src/assets/images/sheet/duck_flags.png` 9프레임 중 4개), `types.ts` |
 | `src/games/othello/` | `OthelloScene`, `OthelloConnection`, `OthelloBoard`(8x8), `OthelloColorPanel`, `types.ts` |
 | `src/games/stepping/` | `SteppingScene`, `SteppingConnection`, `SteppingMap`(맵 생성), `SteppingView`(한 유저 플레이 화면), `types.ts` |
-| `src/games/airhockey/` | `AirhockeyScene`, `AirhockeyConnection`, `AirhockeyTable`(테이블 그리기 + 레버 드래그), `types.ts` |
+| `src/games/airhockey/` | `AirhockeyScene`, `AirhockeyConnection`, `AirhockeyTable`(테이블 그리기 + 레버 드래그), `AirhockeyCoinToss`(첫 서브 동전 던지기 연출), `types.ts` |
 | `src/games/flag/` | `FlagScene`, `FlagConnection`, `FlagQuestPanel`(상단 문제 판넬), `FlagControlPanel`(좌우 올림/정지/내림 버튼), `FlagDuck`(시트 `src/assets/images/sheet/duck_flags.png` 9프레임 = 양손 올림/정지/내림), `types.ts` |
 
 ### 코드 규칙
@@ -165,7 +165,7 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 | 가위바위보 | `ONE_START` → `ONE_REMAIN_TIME`(1초마다, 0이면 자동 마감) → `SELECT_GAME`(C→S) → `ONE_RESULT`(5초 팝업) → 반복 |
 | 오델로 | `DOLL_SELECT_REMAIN_TIME` → `DOLL_SELECT` → 5초 뒤 `TURN_START{turn, can}` → `TURN_REMAIN_TIME` → `SELECT_GAME`(C→S `{select:{x,y}}` / S→C `{select, change}`) → 2초 뒤 다음 `TURN_START` |
 | 점핑 | `MAP_SELECT{map}` → 2초 뒤 `GAME_START` → `GAME_REMAIN_TIME`(60초) 동안 양쪽이 동시에 `MOVE_INFO` |
-| 에어하키 | 3초 뒤 `ONE_START` → `PUCK_MOVE`/`LEVER_MOVE` 실시간 → 골이면 `ONE_RESULT` → 3초 뒤 다음 `ONE_START` (3골 먼저 넣으면 승리) |
+| 에어하키 | `GAME_START` 5초 전 `SERVE_SELECT{userid}` → `GAME_START` 3초 뒤 `ONE_START{serve}` → `PUCK_MOVE`/`LEVER_MOVE` 실시간 → 골이면 `ONE_RESULT` → 3초 뒤 다음 `ONE_START` (3골 먼저 넣으면 승리) |
 | 청기백기 | 2초 뒤 `ONE_START{no,total}` → 1초 뒤 `QUEST_SHOW{quest,say,time}` → 답 한 번 `QUEST_SHOW{quest}`(C→S) → `ONE_RESULT{quest:Y/N,score,answer}` → 2초 뒤 다음 문제 (5문제, 마지막 판정 3초 뒤 `GAME_RESULT{score,correct_count,win_per}`) |
 
 **재접속 시 상태 복원** — 재접속한 당사자에게만 `GAME_STATUS`가 온다.
@@ -174,7 +174,7 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 | --- | --- |
 | 오델로 | `{select, status0, status1, turn, can}` — 돌 색·보드 복원. `turn`이 있으면 `TURN_START`처럼 처리 |
 | 점핑 | `{map, count?, player1, player2}` — 각 `{userid, count, life, location}` |
-| 에어하키 | `{puck, LEVER0, LEVER1, win_count0?, win_count1?}` — 0/1 = player1/player2 |
+| 에어하키 | `{puck, LEVER0, LEVER1, win_count0?, win_count1?, serve?}` — 0/1 = player1/player2, `serve` = 지금 판 서브 유저 |
 
 ### 가위바위보
 
@@ -203,7 +203,9 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 | 좌표계 | 원점 = 테이블 정중앙, **y는 위쪽이 +**. 항상 내 기준(내 골대가 아래)이며 서버가 뒤집어 보내므로 클라이언트는 뒤집지 않는다 |
 | 크기 상수 | 테이블/퍽/레버 크기(`types.ts`)는 서버 `airhockeyConstants.ts`와 **반드시 같아야** 한다(충돌 판정 기준) |
 | 레버 무게 | 서버는 `LEVER_MOVE` 좌표를 "손"으로 보고 레버가 τ=0.05초 지연으로 따라간다. 클라이언트는 **손가락 위치를 그대로 보내고**, 내 레버를 그릴 때만 같은 공식(`AirhockeyTable` `LEVER_WEIGHT_MS`)으로 늦춘다. 상대 레버는 다시 늦추지 않는다 |
-| 판 시작 레버 | `ONE_START`를 받으면 퍽 위/아래 `ROUND_START_OFFSET`(300) 자리를 첫 `LEVER_MOVE`로 보낸다. 서버는 그 판의 첫 `LEVER_MOVE` 좌표에 레버를 바로 놓는다 |
+| 서브 | 첫 서브는 서버 동전 던지기(`SERVE_SELECT`) — 클라이언트는 `AirhockeyCoinToss`로 동전을 던지고 서브 유저 별명을 동전에 쓴다(`GAME_START` 때 내림). 이후는 탁구 규칙(2점마다 교대, 듀스부터 1점마다)으로 서버가 정해 `ONE_START.serve`로 준다. 같은 상대와 재게임하면 첫 서브가 교대된다 |
+| 판 시작 퍽 | 중앙에서 서브할 유저 쪽으로 `AIRHOCKEY_SERVE_PUCK_OFFSET`(200, 서버와 같아야 함)에 멈춘 채 시작 — 내 서브면 y=-200, 상대 서브면 y=+200. `ONE_START` 때 클라이언트가 먼저 스냅하고 서버도 PUCK_MOVE 를 한 번 보낸다 |
+| 판 시작 레버 | `ONE_START`를 받으면 가운데 위/아래 `ROUND_START_OFFSET`(300) 자리를 첫 `LEVER_MOVE`로 보낸다. 서버는 그 판의 첫 `LEVER_MOVE` 좌표에 레버를 바로 놓는다 |
 | 퍽 정체 | 퍽이 오래 제자리면 서버가 그 판을 다시 시작한다(`ONE_START` 재수신). 계속 진행되지 않으면 `GAME_RESULT{draw:"Y"}`로 끝난다 |
 
 ### 청기백기 (1인)

@@ -14,6 +14,8 @@ import {
 } from "../../common/types";
 import {
   AirhockeyMessageType,
+  type AirhockeyServeSelectPayload,
+  type AirhockeyOneStartPayload,
   type AirhockeyLeverMovePayload,
   type AirhockeyPuckMovePayload,
   type AirhockeyLeverMoveResultPayload,
@@ -36,8 +38,10 @@ function LogSent(type: string, payload?: unknown): void {
 export interface AirhockeyEventHandlers {
   onEnterRoom?: (envelope: Envelope<EnterRoomPayload>) => void;
   onOutUser?: (envelope: Envelope<OutUserPayload>) => void;
+  // 동전 던지기 결과(첫 서브 유저) — GAME_START 5초 전에 온다.
+  onServeSelect?: (envelope: Envelope<AirhockeyServeSelectPayload>) => void;
   onGameStart?: () => void;
-  onOneStart?: () => void;
+  onOneStart?: (envelope: Envelope<AirhockeyOneStartPayload>) => void;
   onPuckMove?: (envelope: Envelope<AirhockeyPuckMovePayload>) => void;
   onLeverMove?: (envelope: Envelope<AirhockeyLeverMoveResultPayload>) => void;
   onOneResult?: (envelope: Envelope<AirhockeyOneResultPayload>) => void;
@@ -79,13 +83,17 @@ export class AirhockeyConnection {
       LogReceived(MessageType.OUT_USER, envelope);
       this.handlers?.onOutUser?.(envelope);
     });
+    this.room.onMessage(AirhockeyMessageType.SERVE_SELECT, (envelope: Envelope<AirhockeyServeSelectPayload>) => {
+      LogReceived(AirhockeyMessageType.SERVE_SELECT, envelope);
+      this.handlers?.onServeSelect?.(envelope);
+    });
     this.room.onMessage(MessageType.GAME_START, (envelope: Envelope<unknown>) => {
       LogReceived(MessageType.GAME_START, envelope);
       this.handlers?.onGameStart?.();
     });
-    this.room.onMessage(AirhockeyMessageType.ONE_START, (envelope: Envelope<unknown>) => {
+    this.room.onMessage(AirhockeyMessageType.ONE_START, (envelope: Envelope<AirhockeyOneStartPayload>) => {
       LogReceived(AirhockeyMessageType.ONE_START, envelope);
-      this.handlers?.onOneStart?.();
+      this.handlers?.onOneStart?.(envelope);
     });
     // ⚠️ PUCK_MOVE / LEVER_MOVE 는 초당 30번씩 오므로 매번 콘솔에 남기지 않는다 — 다 남기면 콘솔이 다른 메시지를
     //    찾을 수 없을 만큼 넘치고 브라우저도 느려진다(서버도 같은 이유로 LEVER_MOVE 를 로그하지 않는다).
