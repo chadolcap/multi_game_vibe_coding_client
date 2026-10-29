@@ -32,9 +32,9 @@ const POSE_TABLE: Record<FlagMove, Record<FlagMove, DuckPose>> = {
 const POSES: DuckPose[] = Object.values(POSE_TABLE).flatMap((row) => Object.values(row));
 const POSE_BOTH_KEEP = POSE_TABLE[FLAG_KEEP][FLAG_KEEP];
 
-// 프레임 안 오리 발 가운데 좌표(px)를 기준점으로 쓴다(json pivot 은 프레임 가운데라 쓰지 않는다).
-// duck_flags.png 에서 잰 값이다 — 9프레임 모두 같은 자리에 서 있다. 그림을 바꾸면 다시 재야 한다.
-const DUCK_FEET = { x: 164, y: 249 };
+// 프레임 안 오리 발 가운데 좌표(px)를 기준점으로 쓴다(json 에는 기준점 정보가 없다).
+// duck_flags.png(2026-10-29 교체본, 998x788)에서 잰 값이다 — 9프레임 모두 같은 자리에 서 있다. 그림을 바꾸면 다시 재야 한다.
+const DUCK_FEET = { x: 163, y: 249 };
 // 시트 속 오리 높이(머리 깃털 ~ 발끝, px).
 const SHEET_DUCK_HEIGHT = 247;
 
