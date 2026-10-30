@@ -236,7 +236,7 @@ export class RpsScene implements Scene {
     });
 
     this.connection.SendEnterRoom();
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "ENTER_ROOM" })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "ENTER_ROOM" })}`);
   }
 
   public Resize(width: number, height: number): void {
@@ -348,12 +348,12 @@ export class RpsScene implements Scene {
   private HandleOpponentJoined(_payload: OpponentJoinedPayload): void {
     this.status.text = "상대를 찾았습니다! 입장 중...";
     this.connection.SendEnterRoom();
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "ENTER_ROOM" })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "ENTER_ROOM" })}`);
   }
 
   private OnClickReady(): void {
     this.connection.SendReady({ ready: "Y" });
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "READY", payload: { ready: "Y" } })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "READY", payload: { ready: "Y" } })}`);
     this.ready_button.SetEnabled(false);
   }
 
@@ -410,7 +410,7 @@ export class RpsScene implements Scene {
 
   private OnSelectChoice(choice: RpsChoice): void {
     this.connection.SendSelectGame({ select: choice });
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "SELECT_GAME", payload: { select: choice } })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "SELECT_GAME", payload: { select: choice } })}`);
     this.round_status.text = `선택함: ${choice}`;
   }
 
@@ -455,7 +455,7 @@ export class RpsScene implements Scene {
   private OnClickReplay(): void {
     this.has_requested_replay = true;
     this.connection.SendReplay({ replay: "Y" });
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "Y" } })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "Y" } })}`);
 
     // 상대가 이미 나간 상태였다면 그 상대의 응답을 다시 기다릴 필요가 없으니 바로 대기 상태로 넘어간다.
     if (this.opponent_left_at_result) {
@@ -469,7 +469,7 @@ export class RpsScene implements Scene {
   private OnClickExit(): void {
     this.exit_requested = true;
     this.connection.SendReplay({ replay: "N" });
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "N" } })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "N" } })}`);
     this.status.text = "나가는 중...";
   }
 

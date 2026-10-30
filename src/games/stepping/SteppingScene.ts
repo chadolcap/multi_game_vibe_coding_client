@@ -295,7 +295,7 @@ export class SteppingScene implements Scene {
     });
 
     this.connection.SendEnterRoom();
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "ENTER_ROOM" })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "ENTER_ROOM" })}`);
   }
 
   public Resize(width: number, _height: number): void {
@@ -396,12 +396,12 @@ export class SteppingScene implements Scene {
   private HandleOpponentJoined(_payload: OpponentJoinedPayload): void {
     this.status.text = "상대를 찾았습니다! 입장 중...";
     this.connection.SendEnterRoom();
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "ENTER_ROOM" })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "ENTER_ROOM" })}`);
   }
 
   private OnClickReady(): void {
     this.connection.SendReady({ ready: "Y" });
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "READY", payload: { ready: "Y" } })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "READY", payload: { ready: "Y" } })}`);
     this.ready_button.SetEnabled(false);
     this.status.text = "상대의 준비를 기다리는 중...";
   }
@@ -449,7 +449,7 @@ export class SteppingScene implements Scene {
   // 내 화면에서 점프를 마쳤다(손을 뗀 순간 착지 여부가 정해진다) — 서버에 그대로 보낸다.
   private OnJump(move: SteppingMoveInfoPayload): void {
     this.connection.SendMoveInfo(move);
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "MOVE_INFO", payload: move })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "MOVE_INFO", payload: move })}`);
     if (move.save === "yes") {
       this.my_count = move.count;
       this.UpdateProgress();
@@ -520,7 +520,7 @@ export class SteppingScene implements Scene {
   private OnClickReplay(): void {
     this.has_requested_replay = true;
     this.connection.SendReplay({ replay: "Y" });
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "Y" } })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "Y" } })}`);
 
     // 재시작을 고르면 이전 판 화면을 바로 비운다(새 판은 MAP_SELECT 에서 새 맵으로 시작한다).
     this.ResetPlayState(null);
@@ -537,7 +537,7 @@ export class SteppingScene implements Scene {
   private OnClickExit(): void {
     this.exit_requested = true;
     this.connection.SendReplay({ replay: "N" });
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "N" } })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "N" } })}`);
     this.status.text = "나가는 중...";
   }
 

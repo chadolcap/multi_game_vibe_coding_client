@@ -280,7 +280,7 @@ export class AirhockeyScene implements Scene {
     });
 
     this.connection.SendEnterRoom();
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "ENTER_ROOM" })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "ENTER_ROOM" })}`);
   }
 
   public Resize(width: number, _height: number): void {
@@ -384,12 +384,12 @@ export class AirhockeyScene implements Scene {
   private HandleOpponentJoined(_payload: OpponentJoinedPayload): void {
     this.status.text = "상대를 찾았습니다! 입장 중...";
     this.connection.SendEnterRoom();
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "ENTER_ROOM" })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "ENTER_ROOM" })}`);
   }
 
   private OnClickReady(): void {
     this.connection.SendReady({ ready: "Y" });
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "READY", payload: { ready: "Y" } })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "READY", payload: { ready: "Y" } })}`);
     this.ready_button.SetEnabled(false);
     this.status.text = "상대의 준비를 기다리는 중...";
   }
@@ -528,7 +528,7 @@ export class AirhockeyScene implements Scene {
   private OnClickReplay(): void {
     this.has_requested_replay = true;
     this.connection.SendReplay({ replay: "Y" });
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "Y" } })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "Y" } })}`);
 
     // 재시작을 고르면 이전 판 화면을 바로 비운다(새 판은 SERVE_SELECT 에서 처음 상태로 시작한다).
     // 첫 서브는 새로 정해지므로(같은 상대면 교대, 새 상대면 동전 던지기) 이전 서브 유저는 잊는다 — 퍽은 가운데.
@@ -547,7 +547,7 @@ export class AirhockeyScene implements Scene {
   private OnClickExit(): void {
     this.exit_requested = true;
     this.connection.SendReplay({ replay: "N" });
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "N" } })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "N" } })}`);
     this.status.text = "나가는 중...";
   }
 

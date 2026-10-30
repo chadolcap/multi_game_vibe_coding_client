@@ -66,6 +66,7 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 | `src/common/channelNames.ts` | `ParseGameIdFromRoomName()` 등 채널 이름 규칙 |
 | `src/network/` | `LobbyConnection`, `WatcherConnection` |
 | `src/scenes/` | `SceneManager`, `LobbyScene` |
+| `src/ads/` | `AdService` — 보상형(`ShowRewardedAd`)/전면(`ShowInterstitialAd`) 광고. AdSense H5 게임 광고(`adBreak`), `VITE_ADSENSE_CLIENT`(`.env.local`) 없으면 DOM 가짜 광고 |
 | `src/ui/` | 공용 컴포넌트 — `Button`, `InfoPopup`, `GameResultPopup`, `GameStartBanner`, `RoundResultBanner`, `ConnectionLostPopup`, `NoticeBanner`, `LoadingOverlay`, `PlayerPanel`, `DuckMascot`(결과 오리), `Confetti`(색종이), `CuteTheme`/`UiTheme`(테마) |
 | `src/games/rps/` | `RpsScene`, `RpsConnection`, `RpsChoicePanel`, `RpsFlagDuck`(중앙 오리 — 시트 `src/assets/images/sheet/duck_flags.png` 9프레임 중 4개), `types.ts` |
 | `src/games/othello/` | `OthelloScene`, `OthelloConnection`, `OthelloBoard`(8x8), `OthelloColorPanel`, `types.ts` |
@@ -80,7 +81,7 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 - **메시지 형식**: S→C는 항상 `Envelope<P> = {type, payload, ts}`이다. C→S는 envelope 없이 `room.send(type, payload)`로 보낸다.
 - **로그는 Connection에서만 남긴다.**
   - 받은 메시지는 모두 `LogReceived()`가 `[Lobby]`/`[Game]`/`[Admin]` 태그로 남긴다. wildcard(`"*"`) 핸들러가 있어 새 타입도 로그된다.
-  - 보낸 메시지는 모두 `LogSent()`가 같은 태그로 남긴다("클라이언트에서 보낸 내용"). 새 `Send*()` 함수를 만들면 `room.send()` 바로 뒤에 붙인다.
+  - 보낸 메시지는 모두 `LogSent()`가 같은 태그로 남긴다("C -> S"). 새 `Send*()` 함수를 만들면 `room.send()` 바로 뒤에 붙인다.
   - 씬에는 로그를 추가하지 않는다.
   - 예외: 에어하키 `PUCK_MOVE`/`LEVER_MOVE`는 너무 자주 와서 판마다 첫 `PUCK_MOVE`만 로그한다. 보내는 `LEVER_MOVE`도 판마다 첫 번째만 남긴다.
   - 예외: `ADMIN_LOGIN`은 `password`를 `***`로 가려서 남긴다.
@@ -111,6 +112,15 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 - **재접속(`REJOIN_GAME`)**:
   - `ENTER_LOBBY` 응답 직후 서버가 `reconnection_token`을 보내면 `ConsumeRejoinToken()`이 `client.reconnect()`로 **같은 세션**에 복귀한다.
   - 재접속에 실패하면 `IsConnected()`로 로비 연결을 확인하고, 끊겨 있으면 로비부터 다시 접속한다.
+
+### star · 광고
+
+| 항목 | 내용 |
+| --- | --- |
+| 보유 star | `ENTER_LOBBY.star`로 초기화. 로비 왼쪽 위에 표시 |
+| 광고 보기(로비) | 버튼 잠금 → 보상형 광고 → **끝까지 봤을 때만** `AD_VIEW_COMPLETE{}` → 응답이 오면 잠금 해제. 응답의 `star`로 항상 덮어쓴다(클라이언트에서 더하지 않음). `error` 1=30초 안 재요청, 2=서버 오류 |
+| 게임 종료 광고 | 모든 게임 씬의 `GoToLobbyOnce()` → `main.ts` `ExitGameToLobby()`: 게임방 `room.leave(true)` → 전면 광고 → `GoToLobby()`. star 보상 없음. 게임 **도중**에 광고 때문에 끊으면 서버가 봇으로 처리하니 이 경로 밖에서 광고를 띄우지 않는다 |
+| 관리자 | `ADMIN_AD_LOG{date}` — 날짜 형식이 틀리면 서버가 응답하지 않으므로 `admin.ts`가 미리 검사. `list`는 최신순 최대 500건 |
 
 ### 연결 끊김 처리
 
@@ -235,6 +245,7 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 | `ADMIN_CHANNEL_COUNT` | 전체 채널 접속자 수 |
 | `ADMIN_CHANNEL_USER` | 특정 채널 유저 목록 |
 | `SEND_NOTICE` | 공지 전송. `time`(예약 발송)은 서버가 아직 지원하지 않는다 |
+| `ADMIN_AD_LOG{date}` | 그날 광고 로그 요약(`summary`) + 목록(`list`, 최신순 500건), `total > list.length`면 잘림 |
 
 `SEND_NOTICE`는 로비/게임 채널에도 같은 type으로 브로드캐스트된다. 클라이언트는 `NoticeBanner`(화면 맨 위 빨간 바 + 흐르는 텍스트)로 한 번 보여준다.
 

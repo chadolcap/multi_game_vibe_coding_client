@@ -2,7 +2,7 @@
 // 소켓 연결에 실패하거나 끊어지면 팝업으로 알리고, '로비로 접속' 버튼으로 다시 접속하게 한다.
 // 응답의 name 이 비어 있으면 별명 등록 팝업을 띄운다. 다 끝나면 '내정보 보기' / '게임 참여' 버튼만 남긴다.
 // 통신 내용은 화면에 노출하지 않고 콘솔에만 출력한다.
-import { Container, Graphics, Text } from "pixi.js";
+import { Container, Graphics, Text, Ticker } from "pixi.js";
 import { CloseCode, type Room } from "@colyseus/sdk";
 import type { Scene } from "./Scene";
 import { Button } from "../ui/Button";
@@ -18,10 +18,12 @@ import type { NoticeBanner } from "../ui/NoticeBanner";
 import { LobbyConnection } from "../network/LobbyConnection";
 import { GetQueryParam } from "../common/urlParams";
 import { ParseGameIdFromRoomName } from "../common/channelNames";
+import { ShowRewardedAd } from "../ads/AdService";
 import {
   GameId,
   type EnterLobbyPayload,
   type EnterLobbyResultPayload,
+  type AdViewCompleteResultPayload,
   type MatchFoundPayload,
   type NameResultPayload,
   type PlayInfoPayload,
@@ -66,6 +68,9 @@ const JOIN_MATCH_ERROR_MESSAGES: Record<number, string> = {
   2: "매칭 중 오류가 발생했습니다.",
 };
 
+// AD_VIEW_COMPLETE 실패(error) 코드 — 1=30초 안에 다시 보냄, 2=서버 오류. 둘 다 같은 안내를 한다(서버 docs/HANDOFF.md).
+const AD_VIEW_ERROR_MESSAGE = "잠시 후 다시 시도해 주세요.";
+
 const LOG_TAG = "[Lobby]";
 
 // 화면 세로 배치(720x1280 기준). 타이틀 → 오리 → 메뉴 카드(게임 선택 + 버튼) → 상태 문구 순.
@@ -80,6 +85,14 @@ const STATUS_Y_WITH_MENU = 1010;
 const STATUS_Y_WITHOUT_MENU = MENU_CARD_Y + MENU_CARD_HEIGHT / 2 - 20;
 // 상태 문구가 카드 가운데에 놓일 때 카드 테두리를 넘지 않도록 좌우 여백을 둔 줄바꿈 폭.
 const STATUS_WRAP_WIDTH = MENU_CARD_WIDTH - 60;
+// 화면 왼쪽 위 — 보유 star + '광고 보기' 버튼 한 줄 (타이틀보다 위).
+const STAR_ROW_X = 24;
+const STAR_ROW_Y = 16;
+const STAR_ROW_HEIGHT = 60;
+const AD_BUTTON_X = STAR_ROW_X + 130;
+// star 획득 연출(+1)이 위로 떠오르며 사라지는 시간과 거리.
+const STAR_GAIN_EFFECT_MS = 1000;
+const STAR_GAIN_EFFECT_RISE = 40;
 
 // PLAY_INFO 응답을 '내정보 보기' 팝업용 줄글로 바꾼다. result 는 성공 여부라 화면에 보여주지 않고,
 // 첫 줄에 어느 게임의 전적인지 게임 이름을 쓴다.
@@ -148,9 +161,15 @@ export class LobbyScene implements Scene {
   private readonly cancel_match_button: Button;
   private readonly rank_daily_button: Button;
   private readonly rank_weekly_button: Button;
+  // 보유 star — ENTER_LOBBY.star 로 초기화하고, AD_VIEW_COMPLETE 응답의 star 로 항상 덮어쓴다(클라이언트에서 더하지 않음).
+  private readonly star_text: Text;
+  private readonly ad_button: Button;
   private readonly connection = new LobbyConnection();
   private readonly options: LobbySceneOptions;
   private my_userid = "";
+  // ENTER_LOBBY 실패(result:N) 문구. 서버는 실패 응답 직후 연결을 끊으므로(WITH_ERROR), onLeave 에서
+  // 일반 "연결 끊김" 대신 이 문구(중복 접속 등)를 팝업으로 보여준다. 새로 접속할 때마다 비운다.
+  private enter_lobby_error_message: string | null = null;
   // 마지막으로 PLAY_INFO 를 요청한 게임 — 응답에는 game 이 없고, 응답이 오기 전에 선택이 바뀔 수 있어 요청 때 기억해 둔다.
   private play_info_game: GameId = GameId.RPS;
 
@@ -243,6 +262,26 @@ export class LobbyScene implements Scene {
     this.rank_daily_button.visible = false;
     this.rank_weekly_button.visible = false;
 
+    this.star_text = new Text({
+      text: "★ 0",
+      style: {
+        fill: CUTE_COLOR.orange,
+        fontSize: 32,
+        fontFamily: CUTE_FONT_FAMILY,
+        stroke: { color: 0xffffff, width: 7, join: "round" },
+      },
+    });
+    this.star_text.anchor.set(0, 0.5);
+    this.ad_button = new Button({
+      label: "광고 보기",
+      width: 170,
+      height: STAR_ROW_HEIGHT,
+      theme: CUTE_THEME,
+      onClick: () => void this.OnClickWatchAd(),
+    });
+    this.star_text.visible = false;
+    this.ad_button.visible = false;
+
     this.view.addChild(
       CreateCuteBackground(),
       this.title_text,
@@ -256,6 +295,8 @@ export class LobbyScene implements Scene {
       this.cancel_match_button,
       this.rank_daily_button,
       this.rank_weekly_button,
+      this.star_text,
+      this.ad_button,
       this.nickname_popup,
       this.info_popup,
       this.connection_lost_popup
@@ -305,6 +346,9 @@ export class LobbyScene implements Scene {
     const rank_row_x = center_x - rank_row_width / 2;
     this.rank_daily_button.position.set(rank_row_x, MENU_CARD_Y + 356);
     this.rank_weekly_button.position.set(rank_row_x + this.rank_daily_button.width + rank_gap, MENU_CARD_Y + 356);
+
+    this.star_text.position.set(STAR_ROW_X, STAR_ROW_Y + STAR_ROW_HEIGHT / 2);
+    this.ad_button.position.set(AD_BUTTON_X, STAR_ROW_Y);
   }
 
   // 메인 메뉴가 있으면 카드 아래, 없으면(접속 중 등) 빈 카드 가운데에 상태 문구를 둔다.
@@ -326,6 +370,7 @@ export class LobbyScene implements Scene {
     if (this.connection.IsConnected()) return;
 
     this.SetStatus("접속 중...");
+    this.enter_lobby_error_message = null;
 
     try {
       const result = await this.connection.Connect({
@@ -340,6 +385,7 @@ export class LobbyScene implements Scene {
             `주간 랭킹 (${envelope.payload.term.start} ~ ${envelope.payload.term.end})`,
             FormatRankList(envelope.payload.list, envelope.payload.my)
           ),
+        onAdViewComplete: (envelope) => this.HandleAdViewComplete(envelope.payload),
         onJoinMatchResult: (envelope) => {
           // 성공(result:Y)은 문서상 이 type 으로 오는 것으로 되어 있지만, 실제로는 MATCH_FOUND 로 온다(비고 참고).
           // 실패만 여기서 처리하고, 연결은 유지되니 다시 '게임 참여'를 누를 수 있게 한다.
@@ -362,6 +408,12 @@ export class LobbyScene implements Scene {
           }
         },
         onLeave: (code) => {
+          // ENTER_LOBBY 실패 응답 뒤 서버가 끊은 것 — 끊김 사유(중복 접속 등)를 그대로 알린다.
+          if (this.enter_lobby_error_message !== null) {
+            console.log(`${LOG_TAG} ENTER_LOBBY 실패 후 연결 종료 code=${code ?? "-"}`);
+            this.ShowConnectionLost(this.enter_lobby_error_message);
+            return;
+          }
           // 매칭 성사로 서버가 스스로 끊는 정상 흐름(CONSENTED) — 에러 취급하지 않고 로딩을 보여준다.
           if (code === CloseCode.CONSENTED) {
             console.log(`${LOG_TAG} 로비 연결 종료(게임으로 이동) code=${code}`);
@@ -378,7 +430,7 @@ export class LobbyScene implements Scene {
       // 로비 소켓이 연결되면 버튼 없이 바로 ENTER_LOBBY 를 보낸다. 응답을 받기 전까지는 "접속 중"으로 표기한다.
       const payload = BuildEnterLobbyPayload();
       this.connection.SendEnterLobby(payload);
-      console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "ENTER_LOBBY", payload })}`);
+      console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "ENTER_LOBBY", payload })}`);
     } catch (error) {
       console.error(`${LOG_TAG} 접속 실패 ${error instanceof Error ? error.message : String(error)}`);
       this.ShowConnectionLost("서버에 접속할 수 없습니다.\n서버가 꺼져 있거나 네트워크가 불안정할 수 있습니다.");
@@ -410,6 +462,8 @@ export class LobbyScene implements Scene {
     this.cancel_match_button.visible = false;
     this.rank_daily_button.visible = false;
     this.rank_weekly_button.visible = false;
+    this.star_text.visible = false;
+    this.ad_button.visible = false;
     this.game_select.Hide();
     this.UpdateStatusPosition();
   }
@@ -421,10 +475,12 @@ export class LobbyScene implements Scene {
       const message =
         (payload.error !== undefined && ENTER_LOBBY_ERROR_MESSAGES[payload.error]) || "로비 접속에 실패했습니다.";
       this.SetStatus(message);
+      this.enter_lobby_error_message = message;
       return;
     }
 
     this.my_userid = payload.userid ?? "";
+    this.SetStar(payload.star ?? 0);
 
     if (payload.name !== "") {
       this.ShowMainUi();
@@ -435,7 +491,7 @@ export class LobbyScene implements Scene {
     this.nickname_popup.Show({
       onSubmit: (name) => {
         this.connection.SendName({ name });
-        console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "NAME", payload: { name } })}`);
+        console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "NAME", payload: { name } })}`);
       },
     });
   }
@@ -459,6 +515,9 @@ export class LobbyScene implements Scene {
     this.join_match_button.visible = true;
     this.rank_daily_button.visible = true;
     this.rank_weekly_button.visible = true;
+    this.star_text.visible = true;
+    this.ad_button.visible = true;
+    this.ad_button.SetEnabled(true);
     this.game_select.Show();
     this.UpdateStatusPosition();
   }
@@ -466,26 +525,26 @@ export class LobbyScene implements Scene {
   private OnClickRankDaily(): void {
     const payload = { game: this.game_select.GetSelectedGame() };
     this.connection.SendRankDaily(payload);
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "RANK_DAILY", payload })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "RANK_DAILY", payload })}`);
   }
 
   private OnClickRankWeekly(): void {
     const payload = { game: this.game_select.GetSelectedGame() };
     this.connection.SendRankWeekly(payload);
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "RANK_WEEKLY", payload })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "RANK_WEEKLY", payload })}`);
   }
 
   private OnClickMyInfo(): void {
     const payload = { game: this.game_select.GetSelectedGame() };
     this.play_info_game = payload.game;
     this.connection.SendPlayInfo(payload);
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "PLAY_INFO", payload })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "PLAY_INFO", payload })}`);
   }
 
   private OnClickJoinMatch(): void {
     const payload = { game: this.game_select.GetSelectedGame(), select: "Y" as const };
     this.connection.SendJoinMatch(payload);
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "JOIN_MATCH", payload })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "JOIN_MATCH", payload })}`);
     // MATCH_FOUND 는 다른 유저가 매칭될 때까지 즉시 오지 않으므로, 그때까지 취소할 수 있게 한다.
     this.status.visible = true;
     this.SetStatus("상대를 찾는 중...");
@@ -495,7 +554,7 @@ export class LobbyScene implements Scene {
   private OnClickCancelMatch(): void {
     const payload = { game: this.game_select.GetSelectedGame(), select: "N" as const };
     this.connection.SendJoinMatch(payload);
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "JOIN_MATCH", payload })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "JOIN_MATCH", payload })}`);
     this.SetStatus("매칭을 취소했습니다.");
     this.ShowJoinMatchButton();
   }
@@ -574,6 +633,71 @@ export class LobbyScene implements Scene {
       this.status.visible = true;
       void this.ConnectToLobby();
     }
+  }
+
+  // '광고 보기' — 버튼을 잠그고 광고를 재생한다. 끝까지 봤을 때만 AD_VIEW_COMPLETE 를 보내고, 잠금은 응답이 오면 푼다.
+  private async OnClickWatchAd(): Promise<void> {
+    this.ad_button.SetEnabled(false);
+    const completed = await ShowRewardedAd();
+
+    // 광고를 보는 동안 매칭 성사/연결 끊김으로 로비를 떠났으면 보낼 곳이 없다.
+    if (!this.connection.IsConnected()) return;
+    if (!completed) {
+      this.SetStatus("광고를 끝까지 봐야 star 를 받을 수 있어요.");
+      this.ad_button.SetEnabled(true);
+      return;
+    }
+    this.connection.SendAdViewComplete();
+  }
+
+  private HandleAdViewComplete(payload: AdViewCompleteResultPayload): void {
+    this.SetStar(payload.star);
+    this.ad_button.SetEnabled(true);
+    if (payload.result === "Y") {
+      this.ShowStarGain(payload.star_add ?? 0);
+      return;
+    }
+    this.SetStatus(AD_VIEW_ERROR_MESSAGE);
+  }
+
+  private SetStar(star: number): void {
+    this.star_text.text = `★ ${star}`;
+  }
+
+  // star 옆에서 "+N" 이 위로 떠오르며 사라진다.
+  private ShowStarGain(star_add: number): void {
+    if (star_add <= 0) return;
+    const effect = new Text({
+      text: `+${star_add}`,
+      style: {
+        fill: CUTE_COLOR.red,
+        fontSize: 34,
+        fontFamily: CUTE_FONT_FAMILY,
+        stroke: { color: 0xffffff, width: 7, join: "round" },
+      },
+    });
+    effect.anchor.set(0, 0.5);
+    const start_y = this.star_text.y;
+    effect.position.set(this.star_text.x + this.star_text.width + 6, start_y);
+    this.view.addChild(effect);
+
+    let elapsed_ms = 0;
+    const OnTick = (ticker: Ticker): void => {
+      // 연출 중 씬이 파괴되면(매칭 성사 등) 같이 정리한다.
+      if (effect.destroyed) {
+        Ticker.shared.remove(OnTick);
+        return;
+      }
+      elapsed_ms += ticker.deltaMS;
+      const t = Math.min(elapsed_ms / STAR_GAIN_EFFECT_MS, 1);
+      effect.y = start_y - STAR_GAIN_EFFECT_RISE * t;
+      effect.alpha = 1 - t;
+      if (t >= 1) {
+        Ticker.shared.remove(OnTick);
+        effect.destroy();
+      }
+    };
+    Ticker.shared.add(OnTick);
   }
 
   private SetStatus(message: string): void {

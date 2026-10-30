@@ -49,7 +49,8 @@
       }
       #login-status,
       #channel-user-total,
-      #notice-status {
+      #notice-status,
+      #ad-log-status {
         margin-left: 8px;
         font-size: 13px;
         color: #555;
@@ -60,6 +61,24 @@
       .field-row label {
         margin-right: 16px;
         font-size: 14px;
+      }
+      .ad-log-summary {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .ad-log-summary div {
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        padding: 8px;
+        text-align: center;
+        font-size: 13px;
+      }
+      .ad-log-summary strong {
+        display: block;
+        font-size: 18px;
+        margin-top: 4px;
       }
       #notice-message {
         width: 100%;
@@ -148,6 +167,31 @@
         <button id="notice-send-button">공지 전송</button>
         <span id="notice-status"></span>
       </div>
+
+      <h2>광고 로그</h2>
+      <!-- 날짜는 서버 기준(KST). 기본값 오늘은 admin.ts 가 채운다. -->
+      <input id="ad-log-date" type="date" />
+      <button id="ad-log-button">조회</button>
+      <span id="ad-log-status"></span>
+      <div class="ad-log-summary">
+        <div>시청 수<strong id="ad-log-view-count">-</strong></div>
+        <div>유저 수<strong id="ad-log-user-count">-</strong></div>
+        <div>지급 star<strong id="ad-log-star-total">-</strong></div>
+        <div>거부 수<strong id="ad-log-reject-count">-</strong></div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>시각</th>
+            <th>userid</th>
+            <th>결과</th>
+            <th>지급 star</th>
+            <th>보유 star</th>
+            <th>채널</th>
+          </tr>
+        </thead>
+        <tbody id="ad-log-body"></tbody>
+      </table>
     </section>
 
     <script type="module" src="/src/admin.ts"></script>

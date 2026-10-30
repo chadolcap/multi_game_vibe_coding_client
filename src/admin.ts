@@ -1,7 +1,7 @@
 // 관리자 페이지 — admin.html 의 진입점. PixiJS 를 쓰지 않고 순수 DOM 으로 구성한다
 // (게임 화면이 아니라 조회/입력 위주의 관리 도구라 캔버스가 필요 없음).
 import { WatcherConnection } from "./network/WatcherConnection";
-import type { AdminChannelUserEntry, GameId } from "./common/types";
+import type { AdminAdLogEntry, AdminAdLogResultPayload, AdminChannelUserEntry, GameId } from "./common/types";
 
 const LOG_TAG = "[Admin]";
 
@@ -38,6 +38,15 @@ const notice_message_input = GetElement<HTMLTextAreaElement>("notice-message");
 const notice_send_button = GetElement<HTMLButtonElement>("notice-send-button");
 const notice_status = GetElement<HTMLSpanElement>("notice-status");
 
+const ad_log_date_input = GetElement<HTMLInputElement>("ad-log-date");
+const ad_log_button = GetElement<HTMLButtonElement>("ad-log-button");
+const ad_log_status = GetElement<HTMLSpanElement>("ad-log-status");
+const ad_log_view_count = GetElement<HTMLElement>("ad-log-view-count");
+const ad_log_user_count = GetElement<HTMLElement>("ad-log-user-count");
+const ad_log_star_total = GetElement<HTMLElement>("ad-log-star-total");
+const ad_log_reject_count = GetElement<HTMLElement>("ad-log-reject-count");
+const ad_log_body = GetElement<HTMLTableSectionElement>("ad-log-body");
+
 function GetSelectedGame(): GameId {
   return game_select.value as GameId;
 }
@@ -68,6 +77,55 @@ function RenderChannelUserTable(users: AdminChannelUserEntry[]): void {
   }
 }
 
+// 오늘 날짜(KST, 서버 기준)를 "YYYY-MM-DD" 로 — sv-SE 로캘이 이 형식으로 찍어준다.
+function GetTodayKst(): string {
+  return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
+}
+
+// 날짜 형식이 틀리면(2026-02-30 등) 서버가 응답하지 않으므로 보내기 전에 실제 있는 날짜인지 검사한다.
+function IsValidDate(date: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const [year, mon, day] = date.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, mon - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === mon - 1 && parsed.getUTCDate() === day;
+}
+
+function RenderAdLog(payload: AdminAdLogResultPayload): void {
+  ad_log_view_count.textContent = String(payload.summary.view_count);
+  ad_log_user_count.textContent = String(payload.summary.user_count);
+  ad_log_star_total.textContent = String(payload.summary.star_total);
+  ad_log_reject_count.textContent = String(payload.summary.reject_count);
+  // list 는 최신순 최대 500건 — total 이 더 크면 잘린 것이다.
+  ad_log_status.textContent =
+    payload.total > payload.list.length
+      ? `${payload.date} · 총 ${payload.total}건 중 최근 ${payload.list.length}건만 표시`
+      : `${payload.date} · 총 ${payload.total}건`;
+  RenderAdLogTable(payload.list);
+}
+
+function RenderAdLogTable(list: AdminAdLogEntry[]): void {
+  ad_log_body.innerHTML = "";
+  for (const entry of list) {
+    const row = document.createElement("tr");
+    const values = [
+      entry.time,
+      entry.userid,
+      entry.result === "Y" ? "지급" : "거부",
+      String(entry.star_add),
+      String(entry.star),
+      entry.channel,
+    ];
+    for (const value of values) {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.appendChild(cell);
+    }
+    ad_log_body.appendChild(row);
+  }
+}
+
+ad_log_date_input.value = GetTodayKst();
+
 const connection = new WatcherConnection();
 
 async function ConnectAndLogin(): Promise<void> {
@@ -92,6 +150,7 @@ async function ConnectAndLogin(): Promise<void> {
         channel_user_total.textContent = `총 ${envelope.payload.total}명`;
         RenderChannelUserTable(envelope.payload.user);
       },
+      onAdLog: (envelope) => RenderAdLog(envelope.payload),
       onError: (envelope) => {
         console.error(`${LOG_TAG} 에러 code=${envelope.payload.code} message=${envelope.payload.message}`);
       },
@@ -123,7 +182,7 @@ login_form.addEventListener("submit", (event) => {
 channel_count_button.addEventListener("click", () => {
   const payload = { game: GetSelectedGame() };
   connection.SendChannelCountRequest(payload);
-  console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "ADMIN_CHANNEL_COUNT", payload })}`);
+  console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "ADMIN_CHANNEL_COUNT", payload })}`);
 });
 
 channel_user_button.addEventListener("click", () => {
@@ -133,7 +192,7 @@ channel_user_button.addEventListener("click", () => {
   const channel_prefix = channel_type_select.value === "lobby" ? "lobby" : game;
   const payload = { game, channel: `${channel_prefix}_${Number(channel_no_input.value)}` };
   connection.SendChannelUserRequest(payload);
-  console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "ADMIN_CHANNEL_USER", payload })}`);
+  console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "ADMIN_CHANNEL_USER", payload })}`);
 });
 
 function GetCheckedNoticeChannels(): string[] {
@@ -162,5 +221,15 @@ notice_send_button.addEventListener("click", () => {
   connection.SendNotice(payload);
 
   notice_status.textContent = "전송했습니다.";
-  console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "SEND_NOTICE", payload })}`);
+  console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "SEND_NOTICE", payload })}`);
+});
+
+ad_log_button.addEventListener("click", () => {
+  const date = ad_log_date_input.value;
+  if (!IsValidDate(date)) {
+    ad_log_status.textContent = "날짜를 올바르게 선택해 주세요.";
+    return;
+  }
+  ad_log_status.textContent = "조회 중...";
+  connection.SendAdLogRequest({ date });
 });

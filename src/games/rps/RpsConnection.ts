@@ -25,11 +25,11 @@ const LOG_TAG = "[Game]";
 
 // 서버에서 온 값은 씬이 로그를 잊더라도 여기서 무조건 콘솔에 남긴다.
 function LogReceived(type: string | number, message: unknown): void {
-  console.log(`${LOG_TAG} 서버에서 받은 내용 type=${String(type)} ${JSON.stringify(message)}`);
+  console.log(`${LOG_TAG} S -> C type=${String(type)} ${JSON.stringify(message)}`);
 }
 
 function LogSent(type: string, payload?: unknown): void {
-  console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify(payload === undefined ? { type } : { type, payload })}`);
+  console.log(`${LOG_TAG} C -> S ${JSON.stringify(payload === undefined ? { type } : { type, payload })}`);
 }
 
 export interface RpsEventHandlers {

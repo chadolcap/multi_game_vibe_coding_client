@@ -330,7 +330,7 @@ export class OthelloScene implements Scene {
     });
 
     this.connection.SendEnterRoom();
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "ENTER_ROOM" })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "ENTER_ROOM" })}`);
   }
 
   public Resize(width: number, _height: number): void {
@@ -436,12 +436,12 @@ export class OthelloScene implements Scene {
   private HandleOpponentJoined(_payload: OpponentJoinedPayload): void {
     this.status.text = "상대를 찾았습니다! 입장 중...";
     this.connection.SendEnterRoom();
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "ENTER_ROOM" })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "ENTER_ROOM" })}`);
   }
 
   private OnClickReady(): void {
     this.connection.SendReady({ ready: "Y" });
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "READY", payload: { ready: "Y" } })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "READY", payload: { ready: "Y" } })}`);
     this.ready_button.SetEnabled(false);
   }
 
@@ -485,7 +485,7 @@ export class OthelloScene implements Scene {
   private OnSelectColor(color: OthelloColor): void {
     this.color_requested = true;
     this.connection.SendDollSelect({ color });
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "DOLL_SELECT", payload: { color } })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "DOLL_SELECT", payload: { color } })}`);
     this.status.text = `선택함: ${this.DescribeColor(color)} 돌`;
   }
 
@@ -616,7 +616,7 @@ export class OthelloScene implements Scene {
     this.CancelAutoPlay(); // 직접 둔 경우 예약돼 있던 자동 착수가 또 나가지 않게 한다.
     this.board.SetHints([]); // 같은 턴에 중복으로 보내지 않게 바로 끈다(결과는 SELECT_GAME 으로 온다).
     this.connection.SendSelectGame({ select: point });
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "SELECT_GAME", payload: { select: point } })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "SELECT_GAME", payload: { select: point } })}`);
     this.status.text = "착수했습니다.";
   }
 
@@ -670,7 +670,7 @@ export class OthelloScene implements Scene {
   private OnClickReplay(): void {
     this.has_requested_replay = true;
     this.connection.SendReplay({ replay: "Y" });
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "Y" } })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "Y" } })}`);
 
     // 재시작을 고르면 이전 판의 말판을 바로 비운다(새 판은 GAME_START 에서 다시 초기 배치로 시작한다).
     this.ResetBoardState();
@@ -689,7 +689,7 @@ export class OthelloScene implements Scene {
   private OnClickExit(): void {
     this.exit_requested = true;
     this.connection.SendReplay({ replay: "N" });
-    console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "N" } })}`);
+    console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "N" } })}`);
     this.status.text = "나가는 중...";
   }
 

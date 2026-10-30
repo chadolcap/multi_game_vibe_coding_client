@@ -13,6 +13,7 @@ import { NoticeBanner } from "./ui/NoticeBanner";
 import { GAME_WIDTH, GAME_HEIGHT, POP_FONT_FAMILY } from "./config";
 import { CUTE_THEME } from "./ui/CuteTheme";
 import type { GameHandoff } from "./scenes/LobbyScene";
+import { InitAds, ShowInterstitialAd } from "./ads/AdService";
 
 // 캔버스 해상도는 720x1280 으로 고정하고, 실제 화면 크기에 맞춰 CSS 로만 배율을 조정한다
 // (스마트폰마다 화면 비율이 달라도 게임 레이아웃 좌표는 항상 720x1280 기준으로 계산하면 된다).
@@ -33,6 +34,8 @@ async function LoadFonts(): Promise<void> {
 }
 
 async function Main(): Promise<void> {
+  // 광고는 폰트 로드와 상관없으니 가장 먼저 미리 받기 시작한다.
+  InitAds();
   await LoadFonts();
   const app = new Application();
   await app.init({
@@ -62,6 +65,20 @@ async function Main(): Promise<void> {
     scene_manager.ChangeScene(lobby_scene);
   }
 
+  // 게임이 끝나 로비로 돌아갈 때(각 게임 씬의 GoToLobbyOnce) — 게임방 소켓을 먼저 정상 종료(CONSENTED)로 끊고,
+  // 전면 광고를 보여준 뒤 로비로 간다 (서버 docs/HANDOFF.md 2-2).
+  // 비정상 종료로 끊기면 서버가 재접속을 기다려 로비 입장 때 REJOIN_GAME 이 올 수 있으므로 반드시 leave(true) 로 끊는다.
+  // leave() 의 Promise 는 이미 끊긴 소켓이면 끝나지 않을 수 있어 기다리지 않는다.
+  async function ExitGameToLobby(room: GameHandoff["room"]): Promise<void> {
+    try {
+      void room.leave(true);
+    } catch (error) {
+      console.warn(`게임방 나가기 실패 ${error instanceof Error ? error.message : String(error)}`);
+    }
+    await ShowInterstitialAd();
+    GoToLobby();
+  }
+
   // 로비에서 매칭이 성사되어 게임 채널 접속까지 끝나면 호출된다.
   function HandleGameRoomReady(handoff: GameHandoff): void {
     loading_overlay.Hide();
@@ -71,7 +88,7 @@ async function Main(): Promise<void> {
       my_userid: handoff.my_userid,
       is_rejoin: handoff.is_rejoin,
       notice_banner,
-      onExitToLobby: GoToLobby,
+      onExitToLobby: () => void ExitGameToLobby(handoff.room),
     };
     const game_scene =
       handoff.game === GameId.OTHELLO

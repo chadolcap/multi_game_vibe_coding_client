@@ -14,6 +14,8 @@ import {
   type AdminChannelUserResultPayload,
   type SendNoticePayload,
   type ErrorPayload,
+  type AdminAdLogQuery,
+  type AdminAdLogResultPayload,
 } from "../common/types";
 
 const LOG_TAG = "[Admin]";
@@ -22,17 +24,18 @@ const WATCHER_ROOM_NAME = "watcher";
 
 // 서버에서 온 값은 화면이 로그를 잊더라도 여기서 무조건 콘솔에 남긴다.
 function LogReceived(type: string | number, message: unknown): void {
-  console.log(`${LOG_TAG} 서버에서 받은 내용 type=${String(type)} ${JSON.stringify(message)}`);
+  console.log(`${LOG_TAG} S -> C type=${String(type)} ${JSON.stringify(message)}`);
 }
 
 function LogSent(type: string, payload?: unknown): void {
-  console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify(payload === undefined ? { type } : { type, payload })}`);
+  console.log(`${LOG_TAG} C -> S ${JSON.stringify(payload === undefined ? { type } : { type, payload })}`);
 }
 
 export interface WatcherEventHandlers {
   onLoginResult?: (envelope: Envelope<AdminLoginResultPayload>) => void;
   onChannelCount?: (envelope: Envelope<AdminChannelCountPayload>) => void;
   onChannelUser?: (envelope: Envelope<AdminChannelUserResultPayload>) => void;
+  onAdLog?: (envelope: Envelope<AdminAdLogResultPayload>) => void;
   onError?: (envelope: Envelope<ErrorPayload>) => void;
   // 위 핸들러가 없는 타입은 여기로 들어온다 (colyseus: 전용 핸들러가 없을 때만 호출됨).
   onUnhandledMessage?: (type: string | number, message: unknown) => void;
@@ -59,6 +62,10 @@ export class WatcherConnection {
     this.room.onMessage(MessageType.ADMIN_CHANNEL_USER, (envelope: Envelope<AdminChannelUserResultPayload>) => {
       LogReceived(MessageType.ADMIN_CHANNEL_USER, envelope);
       handlers.onChannelUser?.(envelope);
+    });
+    this.room.onMessage(MessageType.ADMIN_AD_LOG, (envelope: Envelope<AdminAdLogResultPayload>) => {
+      LogReceived(MessageType.ADMIN_AD_LOG, envelope);
+      handlers.onAdLog?.(envelope);
     });
     this.room.onMessage(MessageType.ERROR, (envelope: Envelope<ErrorPayload>) => {
       LogReceived(MessageType.ERROR, envelope);
@@ -101,6 +108,13 @@ export class WatcherConnection {
     if (!this.room) throw new Error("관리자 채널에 접속되어 있지 않습니다.");
     this.room.send(MessageType.SEND_NOTICE, payload);
     LogSent(MessageType.SEND_NOTICE, payload);
+  }
+
+  // 특정 날짜(YYYY-MM-DD, KST)의 광고 로그 요청. 날짜 형식이 틀리면 서버가 응답하지 않는다.
+  public SendAdLogRequest(payload: AdminAdLogQuery): void {
+    if (!this.room) throw new Error("관리자 채널에 접속되어 있지 않습니다.");
+    this.room.send(MessageType.ADMIN_AD_LOG, payload);
+    LogSent(MessageType.ADMIN_AD_LOG, payload);
   }
 
   public IsConnected(): boolean {

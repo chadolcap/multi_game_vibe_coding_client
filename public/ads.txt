@@ -1,0 +1,8 @@
+google.com, pub-6865079278713445, DIRECT, f08c47fec0942fa0
+
+# Managed by ADOP START #
+google.com, pub-2626235926542867, RESELLER, f08c47fec0942fa0
+google.com, pub-4035509841477666, DIRECT, f08c47fec0942fa0
+google.com, pub-1474238860523410, RESELLER, f08c47fec0942fa0
+google.com, pub-5111137191506013, RESELLER, f08c47fec0942fa0
+# Managed by ADOP END # Create Date : 2019-07-30 14:37:25

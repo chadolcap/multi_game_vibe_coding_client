@@ -29,6 +29,9 @@ export const MessageType = {
   REJOIN_GAME: "REJOIN_GAME", // S->C — ENTER_LOBBY 응답 직후, 게임 도중 끊겼다가 재접속한 유저에게만 온다.
   RANK_DAILY: "RANK_DAILY", // C->S 요청({game}) / S->C 같은 type 재사용 — 일간 랭킹 상위 10명 + 내 정보
   RANK_WEEKLY: "RANK_WEEKLY", // C->S 요청({game}) / S->C 같은 type 재사용 — 주간 랭킹 상위 10명 + 내 정보
+  // C->S {} — 로비에서 광고를 끝까지 본 뒤 보낸다 / S->C 같은 type 재사용 (AdViewCompleteResultPayload).
+  // ENTER_LOBBY 성공 전에 보내면 서버가 응답 없이 무시한다 (서버 docs/HANDOFF.md 2026-10-30).
+  AD_VIEW_COMPLETE: "AD_VIEW_COMPLETE",
   ERROR: "ERROR", // S->C
 
   // 관리자(Watcher) 채널 전용 — 로컬 엑셀 "관리자" 시트 + 서버 소스(server_ruflo/src/common/types.ts) 기준.
@@ -41,6 +44,9 @@ export const MessageType = {
   // 안 받음, 필요하면 별도 논의"라고 되어 있음) — 보내도 무시될 뿐이라 UI 는 남겨두되 동작은 기대하지 말 것.
   // S->C(로비/게임) 는 같은 type 을 재사용해 관리자 공지를 뿌린다(payload: NoticePayload, 예전 이름 NOTICE 는 폐지됨).
   SEND_NOTICE: "SEND_NOTICE",
+  // C->S {date:"YYYY-MM-DD"} / S->C 같은 type 재사용 — 그날 광고 로그 요약 + 목록 (AdminAdLogResultPayload).
+  // 날짜 형식이 틀리면 서버가 응답하지 않으므로 보내기 전에 클라이언트에서 검사한다.
+  ADMIN_AD_LOG: "ADMIN_AD_LOG",
 } as const;
 export type MessageType = (typeof MessageType)[keyof typeof MessageType];
 
@@ -79,7 +85,18 @@ export interface EnterLobbyResultPayload {
   new?: "Y" | "N"; // result:Y 일 때만
   name?: string; // result:Y 일 때만
   avatar?: string; // result:Y 일 때만
+  star?: number; // result:Y 일 때만 — 보유 star. 신규 유저는 가입 보너스 5 (2026-10-30 추가)
   error?: number; // result:N 일 때만
+}
+
+// AD_VIEW_COMPLETE 응답 (S->C, 같은 type 재사용). 서버 원본: server_ruflo/src/common/types.ts AdViewCompleteResultPayload
+// error: 1=직전 보상 뒤 30초 안에 다시 보냄(재전송·연타), 2=서버 오류.
+// star 는 성공·실패 모두 지금 보유량이다 — 화면 값은 항상 이걸로 덮어쓰고, 클라이언트에서 더하지 않는다.
+export interface AdViewCompleteResultPayload {
+  result: "Y" | "N";
+  error?: number;
+  star_add?: number; // result:Y 일 때만 — 이번에 받은 star
+  star: number;
 }
 
 // NAME 으로 보내는 값 (C->S, 별명 등록)
@@ -324,4 +341,32 @@ export interface SendNoticePayload {
 // SEND_NOTICE 로 받는 값 (S->C, 같은 type 재사용) — 로비/게임 채널의 모든 유저에게 관리자 공지가 온다.
 export interface NoticePayload {
   message: string;
+}
+
+// ADMIN_AD_LOG 로 보내는 값 (C->S). date 는 "YYYY-MM-DD"(서버 기준 날짜, KST).
+export interface AdminAdLogQuery {
+  date: string;
+}
+
+export interface AdminAdLogEntry {
+  time: string; // "HH:MM:SS"
+  userid: string;
+  result: "Y" | "N"; // Y=지급 / N=거부
+  star_add: number;
+  star: number; // 처리 뒤 보유 star
+  channel: string; // 요청이 들어온 로비 (lobby_1 …)
+}
+
+// ADMIN_AD_LOG 응답 (S->C, 같은 type 재사용). 서버 원본: server_ruflo/src/common/types.ts AdminAdLogResultPayload
+// list 는 최신순 최대 500건이고, total 이 list 길이보다 크면 잘린 것이다. summary 는 잘림과 상관없이 그날 전체 기준이다.
+export interface AdminAdLogResultPayload {
+  date: string;
+  summary: {
+    view_count: number; // 지급된 시청 수
+    user_count: number; // 지급받은 유저 수 (중복 제외)
+    star_total: number; // 지급한 star 합계
+    reject_count: number; // 거부된 요청 수 (30초 제한·서버 오류)
+  };
+  list: AdminAdLogEntry[];
+  total: number;
 }

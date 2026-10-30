@@ -23,17 +23,18 @@ import {
   type RankQuery,
   type RankDailyPayload,
   type RankWeeklyPayload,
+  type AdViewCompleteResultPayload,
 } from "../common/types";
 
 const LOG_TAG = "[Lobby]";
 
 // 서버에서 온 값은 씬이 로그를 잊더라도 여기서 무조건 콘솔에 남긴다.
 function LogReceived(type: string | number, message: unknown): void {
-  console.log(`${LOG_TAG} 서버에서 받은 내용 type=${String(type)} ${JSON.stringify(message)}`);
+  console.log(`${LOG_TAG} S -> C type=${String(type)} ${JSON.stringify(message)}`);
 }
 
 function LogSent(type: string, payload?: unknown): void {
-  console.log(`${LOG_TAG} 클라이언트에서 보낸 내용 ${JSON.stringify(payload === undefined ? { type } : { type, payload })}`);
+  console.log(`${LOG_TAG} C -> S ${JSON.stringify(payload === undefined ? { type } : { type, payload })}`);
 }
 
 export interface LobbyEventHandlers {
@@ -49,6 +50,8 @@ export interface LobbyEventHandlers {
   onRejoinGame?: (envelope: Envelope<RejoinGamePayload>) => void;
   onRankDaily?: (envelope: Envelope<RankDailyPayload>) => void;
   onRankWeekly?: (envelope: Envelope<RankWeeklyPayload>) => void;
+  // 광고 시청 보상 응답 — 성공·실패 모두 같은 type 으로 오고, 둘 다 지금 보유 star 가 들어 있다.
+  onAdViewComplete?: (envelope: Envelope<AdViewCompleteResultPayload>) => void;
   onError?: (envelope: Envelope<ErrorPayload>) => void;
   // 관리자 공지(SEND_NOTICE, 같은 type 재사용) — 로비에 접속해 있는 동안 언제든 올 수 있다.
   onNotice?: (envelope: Envelope<NoticePayload>) => void;
@@ -123,6 +126,10 @@ export class LobbyConnection {
     this.room.onMessage(MessageType.RANK_WEEKLY, (envelope: Envelope<RankWeeklyPayload>) => {
       LogReceived(MessageType.RANK_WEEKLY, envelope);
       this.handlers?.onRankWeekly?.(envelope);
+    });
+    this.room.onMessage(MessageType.AD_VIEW_COMPLETE, (envelope: Envelope<AdViewCompleteResultPayload>) => {
+      LogReceived(MessageType.AD_VIEW_COMPLETE, envelope);
+      this.handlers?.onAdViewComplete?.(envelope);
     });
     this.room.onMessage(MessageType.ERROR, (envelope: Envelope<ErrorPayload>) => {
       LogReceived(MessageType.ERROR, envelope);
@@ -214,6 +221,13 @@ export class LobbyConnection {
     if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
     this.room.send(MessageType.RANK_WEEKLY, payload);
     LogSent(MessageType.RANK_WEEKLY, payload);
+  }
+
+  // 광고를 끝까지 본 뒤 star 보상 요청 (payload 없음 — 서버 규약상 {} 를 보낸다).
+  public SendAdViewComplete(): void {
+    if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
+    this.room.send(MessageType.AD_VIEW_COMPLETE, {});
+    LogSent(MessageType.AD_VIEW_COMPLETE, {});
   }
 
   // 씬이 파괴될 때 호출한다 — 콜백만 끊는다. 로비 연결은 매칭 성사 시 서버가 스스로 끊으므로 여기서 닫지 않는다.

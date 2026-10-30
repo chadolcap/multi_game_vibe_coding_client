@@ -5,6 +5,15 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>가위바위보 클라이언트</title>
+    <!-- Google AdSense: 게시자 ID(ca-pub-XXXXXXXXXXXXXXXX)는 .env.local 의 VITE_ADSENSE_CLIENT 로 넣는다 (Vite 가 빌드 때 치환) -->
+    <!-- data-adbreak-test="on": H5 게임 광고(adBreak) 테스트 모드 — 승인 전 테스트용. 실서비스 배포 전에 반드시 지울 것 -->
+    <meta name="google-adsense-account" content="%VITE_ADSENSE_CLIENT%" />
+    <script
+      async
+      data-adbreak-test="on"
+      src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=%VITE_ADSENSE_CLIENT%"
+      crossorigin="anonymous"
+    ></script>
   </head>
   <body>
     <div id="app"></div>
