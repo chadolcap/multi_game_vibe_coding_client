@@ -80,7 +80,7 @@ export interface OthelloGameStatusPayload {
 // - draw:"Y" 는 시트에 없는 서버 확장 — 돌 개수가 같은 무승부면 오고, 이때 winner/loser 는 승자/패자가
 //   아니라 그냥 두 참가자다.
 export interface OthelloGameResultPayload {
-  winner: { userid: string; win_count: number; win_per: number };
-  loser: { userid: string; win_count: number; win_per: number };
+  winner: { userid: string; win_count: number; win_per: number; star: number };
+  loser: { userid: string; win_count: number; win_per: number; star: number };
   draw?: "Y";
 }

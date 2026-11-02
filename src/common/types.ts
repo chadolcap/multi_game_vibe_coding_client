@@ -59,6 +59,7 @@ export const ErrorCode = {
   SERVER_ERROR: "SERVER_ERROR",
   CHANNEL_FULL: "CHANNEL_FULL",
   NO_GAME_ROOM: "NO_GAME_ROOM",
+  NOT_ENOUGH_STAR: "NOT_ENOUGH_STAR", // JOIN_MATCH 했는데 보유 star 부족 — 로비 연결은 유지된다 (2026-11-02)
 } as const;
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 
@@ -90,7 +91,7 @@ export interface EnterLobbyResultPayload {
 }
 
 // AD_VIEW_COMPLETE 응답 (S->C, 같은 type 재사용). 서버 원본: server_ruflo/src/common/types.ts AdViewCompleteResultPayload
-// error: 1=직전 보상 뒤 30초 안에 다시 보냄(재전송·연타), 2=서버 오류.
+// error: 1=직전 보상 뒤 10초 안에 다시 보냄(재전송·연타), 2=서버 오류.
 // star 는 성공·실패 모두 지금 보유량이다 — 화면 값은 항상 이걸로 덮어쓰고, 클라이언트에서 더하지 않는다.
 export interface AdViewCompleteResultPayload {
   result: "Y" | "N";
@@ -257,6 +258,7 @@ export interface GameResultPlayerInfo {
   userid: string;
   win_count: number;
   win_per: number; // total_win_count 기준의 승율
+  star: number; // 이번 게임 시작 비용까지 뺀 남은 star (2026-11-02) — 0 이면 재시작 대신 star 부족 팝업
 }
 
 // GAME_RESULT 로 받는 값 (S->C, 최종 결과)
@@ -365,7 +367,7 @@ export interface AdminAdLogResultPayload {
     view_count: number; // 지급된 시청 수
     user_count: number; // 지급받은 유저 수 (중복 제외)
     star_total: number; // 지급한 star 합계
-    reject_count: number; // 거부된 요청 수 (30초 제한·서버 오류)
+    reject_count: number; // 거부된 요청 수 (10초 제한·서버 오류)
   };
   list: AdminAdLogEntry[];
   total: number;

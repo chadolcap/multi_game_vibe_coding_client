@@ -87,4 +87,5 @@ export interface FlagGameResultPayload {
   score: number;
   correct_count: number;
   win_per: number;
+  star: number; // 남은 star — 0 이면 재시작 대신 star 부족 팝업 (2026-11-02)
 }

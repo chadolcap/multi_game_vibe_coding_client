@@ -79,6 +79,7 @@ export interface SteppingGameResultPlayerInfo {
   win_per: number;
   score: number;
   life: number;
+  star: number; // 남은 star — 0 이면 재시작 대신 star 부족 팝업 (2026-11-02)
 }
 
 // GAME_RESULT 로 받는 값 (S->C). draw:"Y" 면 winner/loser 는 승자/패자가 아니라 그냥 두 참가자다.

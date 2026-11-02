@@ -7,7 +7,7 @@ import { CloseCode, type Room } from "@colyseus/sdk";
 import type { Scene } from "./Scene";
 import { Button } from "../ui/Button";
 import { NicknamePopup } from "../ui/NicknamePopup";
-import { InfoPopup } from "../ui/InfoPopup";
+import { InfoPopup, STAR_SHORTAGE_MESSAGE, STAR_SHORTAGE_TITLE } from "../ui/InfoPopup";
 import { ConnectionLostPopup } from "../ui/ConnectionLostPopup";
 import { GameSelect, GetGameLabel, SELECT_WIDTH } from "../ui/GameSelect";
 import { CUTE_COLOR, CUTE_FONT_FAMILY, CUTE_THEME, CreateCuteBackground } from "../ui/CuteTheme";
@@ -68,7 +68,7 @@ const JOIN_MATCH_ERROR_MESSAGES: Record<number, string> = {
   2: "매칭 중 오류가 발생했습니다.",
 };
 
-// AD_VIEW_COMPLETE 실패(error) 코드 — 1=30초 안에 다시 보냄, 2=서버 오류. 둘 다 같은 안내를 한다(서버 docs/HANDOFF.md).
+// AD_VIEW_COMPLETE 실패(error) 코드 — 1=10초 안에 다시 보냄, 2=서버 오류. 둘 다 같은 안내를 한다(서버 docs/HANDOFF.md).
 const AD_VIEW_ERROR_MESSAGE = "잠시 후 다시 시도해 주세요.";
 
 const LOG_TAG = "[Lobby]";
@@ -163,6 +163,7 @@ export class LobbyScene implements Scene {
   private readonly rank_weekly_button: Button;
   // 보유 star — ENTER_LOBBY.star 로 초기화하고, AD_VIEW_COMPLETE 응답의 star 로 항상 덮어쓴다(클라이언트에서 더하지 않음).
   private readonly star_text: Text;
+  private star = 0;
   private readonly ad_button: Button;
   private readonly connection = new LobbyConnection();
   private readonly options: LobbySceneOptions;
@@ -401,6 +402,12 @@ export class LobbyScene implements Scene {
         onRejoinGame: (envelope) => void this.HandleRejoinGame(envelope.payload),
         onNotice: (envelope) => this.options.notice_banner.Show(envelope.payload.message),
         onError: (envelope) => {
+          // star 부족 — 매칭 대기를 닫고 안내한다. 로비 연결은 유지되니 광고를 보고 다시 참여할 수 있다.
+          if (envelope.payload.code === "NOT_ENOUGH_STAR") {
+            this.ShowJoinMatchButton();
+            this.ShowNotEnoughStar();
+            return;
+          }
           this.SetStatus(`에러: ${envelope.payload.code}`);
           // 게임 채널이 다 찼을 때 — 연결은 유지되니 다시 '게임 참여'를 누를 수 있게 한다.
           if (envelope.payload.code === "NO_GAME_ROOM") {
@@ -542,6 +549,12 @@ export class LobbyScene implements Scene {
   }
 
   private OnClickJoinMatch(): void {
+    // star 가 없으면 서버 응답(NOT_ENOUGH_STAR)을 기다리지 않고 바로 안내한다.
+    if (this.star <= 0) {
+      this.ShowNotEnoughStar();
+      return;
+    }
+
     const payload = { game: this.game_select.GetSelectedGame(), select: "Y" as const };
     this.connection.SendJoinMatch(payload);
     console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "JOIN_MATCH", payload })}`);
@@ -660,7 +673,13 @@ export class LobbyScene implements Scene {
     this.SetStatus(AD_VIEW_ERROR_MESSAGE);
   }
 
+  private ShowNotEnoughStar(): void {
+    this.SetStatus("");
+    this.ShowInfoPopup(STAR_SHORTAGE_TITLE, STAR_SHORTAGE_MESSAGE);
+  }
+
   private SetStar(star: number): void {
+    this.star = star;
     this.star_text.text = `★ ${star}`;
   }
 

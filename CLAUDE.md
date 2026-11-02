@@ -118,7 +118,9 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 | 항목 | 내용 |
 | --- | --- |
 | 보유 star | `ENTER_LOBBY.star`로 초기화. 로비 왼쪽 위에 표시 |
-| 광고 보기(로비) | 버튼 잠금 → 보상형 광고 → **끝까지 봤을 때만** `AD_VIEW_COMPLETE{}` → 응답이 오면 잠금 해제. 응답의 `star`로 항상 덮어쓴다(클라이언트에서 더하지 않음). `error` 1=30초 안 재요청, 2=서버 오류 |
+| 광고 보기(로비) | 버튼 잠금 → 보상형 광고 → **끝까지 봤을 때만** `AD_VIEW_COMPLETE{}` → 응답이 오면 잠금 해제. 응답의 `star`로 항상 덮어쓴다(클라이언트에서 더하지 않음). `error` 1=10초 안 재요청, 2=서버 오류 |
+| 게임 시작 비용 | `GAME_START`(재게임 포함)마다 서버가 star 1 차감. `JOIN_MATCH` 시 부족하면 `ERROR{NOT_ENOUGH_STAR}`(로비 연결 유지) — 0 이면 `LobbyScene`이 보내기 전에 막고 같은 안내를 띄운다 |
+| 재시작 star 검사 | 씬이 `GAME_RESULT`의 내 `star`를 저장. 재시작을 눌렀을 때 0 이면 `replay:"Y"`를 보내지 않고 star 부족 팝업(`InfoPopup`) → 닫으면 `GoToLobbyOnce()`. 팝업이 떠 있는 동안 온 `RETURN_TO_LOBBY`와 뒤따르는 `onLeave`는 무시한다(닫기를 눌러야 이동) |
 | 게임 종료 광고 | 모든 게임 씬의 `GoToLobbyOnce()` → `main.ts` `ExitGameToLobby()`: 게임방 `room.leave(true)` → 전면 광고 → `GoToLobby()`. star 보상 없음. 게임 **도중**에 광고 때문에 끊으면 서버가 봇으로 처리하니 이 경로 밖에서 광고를 띄우지 않는다 |
 | 관리자 | `ADMIN_AD_LOG{date}` — 날짜 형식이 틀리면 서버가 응답하지 않으므로 `admin.ts`가 미리 검사. `list`는 최신순 최대 500건 |
 
@@ -158,6 +160,7 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 | --- | --- |
 | 나/상대 구분 | `winner.userid`를 내 `userid`와 비교한다 |
 | `win_per` | `PlayerPanel.UpdateWinPer()`로 사용자 정보 패널에 반영한다 |
+| `star` | 이번 게임 비용까지 뺀 남은 star. 청기백기는 payload 최상위 |
 | `draw:"Y"` | 무승부다. `winner`/`loser`는 그냥 두 참가자이고, 오리(`DuckMascot`)가 두 별명과 "무승부"를 든다 |
 | `draw` 없음 / `"N"` | 승패가 있다 |
 

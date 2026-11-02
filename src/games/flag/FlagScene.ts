@@ -13,6 +13,7 @@ import { GameResultPopup, RESULT_SCREEN_DIM_ALPHA } from "../../ui/GameResultPop
 import { GameStartBanner } from "../../ui/GameStartBanner";
 import type { NoticeBanner } from "../../ui/NoticeBanner";
 import { ConnectionLostPopup } from "../../ui/ConnectionLostPopup";
+import { InfoPopup, STAR_SHORTAGE_MESSAGE, STAR_SHORTAGE_TITLE } from "../../ui/InfoPopup";
 import { FlagConnection } from "./FlagConnection";
 import { FlagDuck } from "./FlagDuck";
 import { FlagControlPanel, FLAG_DOWN_BUTTON_CENTER_Y } from "./FlagControlPanel";
@@ -68,6 +69,8 @@ export class FlagScene implements Scene {
   private readonly confetti = new Confetti();
   private readonly result_popup: GameResultPopup;
   private readonly connection_lost_popup: ConnectionLostPopup;
+  // 재시작을 눌렀는데 star 가 없을 때 — 닫으면 로비로 간다.
+  private readonly star_popup = new InfoPopup(CUTE_THEME);
 
   private my_name = "";
   // 지금 오리가 들고 있는 깃발 상태 — 버튼을 누르면 바로 바꿔 보여준다(서버 판정을 기다리지 않는다).
@@ -84,6 +87,8 @@ export class FlagScene implements Scene {
   private exit_requested = false;
   // RETURN_TO_LOBBY 와 onLeave 가 같은 상황에서 둘 다 올 수 있어, 로비 전환은 한 번만 한다.
   private returned_to_lobby = false;
+  // GAME_RESULT 로 받은 내 남은 star. 아직 모르면 null — 0 일 때만 재시작을 막는다.
+  private my_star: number | null = null;
 
   constructor(options: FlagSceneOptions) {
     this.options = options;
@@ -184,8 +189,11 @@ export class FlagScene implements Scene {
       this.leave_button,
       this.confetti,
       this.game_start_banner,
+      this.star_popup,
       this.connection_lost_popup
     );
+
+    this.star_popup.on_close = () => this.GoToLobbyOnce();
 
     this.connection.Listen({
       onEnterRoom: (envelope) => this.HandleEnterRoom(envelope.payload),
@@ -194,7 +202,7 @@ export class FlagScene implements Scene {
       onQuestShow: (envelope) => this.HandleQuestShow(envelope.payload),
       onOneResult: (envelope) => this.HandleOneResult(envelope.payload),
       onGameResult: (envelope) => this.HandleGameResult(envelope.payload),
-      onReturnToLobby: () => this.GoToLobbyOnce(),
+      onReturnToLobby: () => this.HandleReturnToLobby(),
       onNotice: (envelope) => this.options.notice_banner.Show(envelope.payload.message),
       onLeave: (code) => this.HandleLeave(code),
     });
@@ -311,6 +319,7 @@ export class FlagScene implements Scene {
     this.answering = false;
     this.control_panel.SetEnabled(false);
     this.leave_button.visible = false;
+    this.my_star = payload.star;
     this.UpdateMyInfo(payload.win_per);
     this.quest_panel.SetScore(payload.score);
     this.quest_panel.ShowMessage(`${payload.score}점!`, CUTE_COLOR.red);
@@ -325,6 +334,12 @@ export class FlagScene implements Scene {
   }
 
   private OnClickReplay(): void {
+    // star 가 없으면 재게임을 보내지 않고 알린다 — 서버는 무응답을 10초 뒤 나가기로 처리한다.
+    if (this.my_star === 0) {
+      this.star_popup.Show(STAR_SHORTAGE_TITLE, STAR_SHORTAGE_MESSAGE);
+      return;
+    }
+
     this.connection.SendReplay({ replay: "Y" });
     this.result_popup.Hide();
     this.status.text = "다시 시작하는 중...";
@@ -346,6 +361,9 @@ export class FlagScene implements Scene {
   // RETURN_TO_LOBBY 로 이미 로비로 옮겨갔다면 아무것도 하지 않는다.
   // 내가 나가기로 스스로 끊은 것이 아니면, 무슨 일이 있었는지 보여준 뒤 직접 로비로 돌아갈 수 있게 한다.
   private HandleLeave(code?: number): void {
+    // star 부족 팝업이 떠 있으면 닫기가 로비로 보낸다 — 서버가 RETURN_TO_LOBBY 뒤에 끊는 것을 끊김으로 알리지 않는다.
+    if (this.star_popup.visible) return;
+
     if (this.returned_to_lobby) return;
     if (this.exit_requested) {
       this.GoToLobbyOnce();
@@ -365,6 +383,12 @@ export class FlagScene implements Scene {
 서버가 꺼졌거나 네트워크가 불안정할 수 있습니다.
 로비로 다시 접속해 주세요.`
     );
+  }
+
+  // star 부족 팝업이 떠 있으면 바로 이동하지 않는다 — 팝업의 닫기가 로비로 보낸다(서버 재게임 대기 10초가 지나면 이 메시지가 온다).
+  private HandleReturnToLobby(): void {
+    if (this.star_popup.visible) return;
+    this.GoToLobbyOnce();
   }
 
   // RETURN_TO_LOBBY, onLeave(나가기 요청 후), 버튼 중 무엇이 먼저 오든 한 번만 전환한다.

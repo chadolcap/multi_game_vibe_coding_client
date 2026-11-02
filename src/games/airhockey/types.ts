@@ -91,6 +91,7 @@ export interface AirhockeyGameResultPlayerInfo {
   win_count: number;
   score: number;
   win_per: number;
+  star: number; // 남은 star — 0 이면 재시작 대신 star 부족 팝업 (2026-11-02)
 }
 
 // GAME_RESULT 로 받는 값 (S->C). draw:"Y" 는 둘 다 나갔는데 골 수가 같을 때만 생긴다(시트에 없는 서버 확장).

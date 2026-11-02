@@ -12,6 +12,10 @@ const CONTENT_X = PANEL_X + 40;
 const CONTENT_Y = PANEL_Y + 110;
 const CONTENT_WIDTH = PANEL_WIDTH - 80;
 
+// star 부족 안내 — 로비와 모든 게임 결과 화면이 같은 문구를 쓴다.
+export const STAR_SHORTAGE_TITLE = "star 부족";
+export const STAR_SHORTAGE_MESSAGE = "star 가 부족합니다.\n로비의 '광고 보기'로 star 를 받아 주세요.";
+
 export class InfoPopup extends Container {
   private readonly title: Text;
   private readonly content: Text;

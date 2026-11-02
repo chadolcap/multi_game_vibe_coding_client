@@ -14,6 +14,7 @@ import { GameResultPopup, RESULT_SCREEN_DIM_ALPHA } from "../../ui/GameResultPop
 import { GameStartBanner } from "../../ui/GameStartBanner";
 import type { NoticeBanner } from "../../ui/NoticeBanner";
 import { ConnectionLostPopup } from "../../ui/ConnectionLostPopup";
+import { InfoPopup, STAR_SHORTAGE_MESSAGE, STAR_SHORTAGE_TITLE } from "../../ui/InfoPopup";
 import {
   CUTE_COLOR,
   CUTE_FONT_FAMILY,
@@ -107,6 +108,8 @@ export class AirhockeyScene implements Scene {
   private readonly result_popup: GameResultPopup;
   private readonly back_to_lobby_button: Button;
   private readonly connection_lost_popup: ConnectionLostPopup;
+  // 재시작을 눌렀는데 star 가 없을 때 — 닫으면 로비로 간다.
+  private readonly star_popup = new InfoPopup(CUTE_THEME);
   private readonly connection: AirhockeyConnection;
   private readonly options: AirhockeySceneOptions;
   // ENTER_ROOM 때 정해진다 — GAME_STATUS 의 LEVER0/LEVER1, win_count0/1 중 어느 쪽이 나인지 구분한다.
@@ -127,6 +130,8 @@ export class AirhockeyScene implements Scene {
   private exit_requested = false;
   // RETURN_TO_LOBBY 와 onLeave(CONSENTED) 가 같은 상황에서 둘 다 올 수 있어, 로비 전환은 한 번만 한다.
   private returned_to_lobby = false;
+  // GAME_RESULT 로 받은 내 남은 star. 아직 모르면 null — 0 일 때만 재시작을 막는다.
+  private my_star: number | null = null;
   private banner_timer: ReturnType<typeof setTimeout> | null = null;
   private round_message_timer: ReturnType<typeof setTimeout> | null = null;
   // 재접속 안내를 5초 뒤에 지우는 타이머.
@@ -257,10 +262,13 @@ export class AirhockeyScene implements Scene {
       this.confetti,
       this.coin_toss,
       this.game_start_banner,
+      this.star_popup,
       this.connection_lost_popup
     );
     this.ResetPlayState();
     this.table.SetMessage("준비 중");
+
+    this.star_popup.on_close = () => this.GoToLobbyOnce();
 
     this.connection.Listen({
       onEnterRoom: (envelope) => this.HandleEnterRoom(envelope.payload),
@@ -273,7 +281,7 @@ export class AirhockeyScene implements Scene {
       onOneResult: (envelope) => this.HandleOneResult(envelope.payload),
       onGameStatus: (envelope) => this.HandleGameStatus(envelope.payload),
       onGameResult: (envelope) => this.HandleGameResult(envelope.payload),
-      onReturnToLobby: () => this.GoToLobbyOnce(),
+      onReturnToLobby: () => this.HandleReturnToLobby(),
       onOpponentJoined: (envelope) => this.HandleOpponentJoined(envelope.payload),
       onNotice: (envelope) => this.options.notice_banner.Show(envelope.payload.message),
       onLeave: (code) => this.HandleLeave(code),
@@ -509,6 +517,7 @@ export class AirhockeyScene implements Scene {
     const am_i_winner = payload.winner.userid === this.options.my_userid;
     const me = am_i_winner ? payload.winner : payload.loser;
     const opponent = am_i_winner ? payload.loser : payload.winner;
+    this.my_star = me.star;
     const is_draw = payload.draw === "Y";
 
     // ENTER_ROOM 때 보여준 사용자 정보 뷰의 win_per 를 최신 값으로 갱신한다.
@@ -526,6 +535,12 @@ export class AirhockeyScene implements Scene {
   }
 
   private OnClickReplay(): void {
+    // star 가 없으면 재게임을 보내지 않고 알린다 — 서버는 무응답을 10초 뒤 나가기로 처리한다.
+    if (this.my_star === 0) {
+      this.star_popup.Show(STAR_SHORTAGE_TITLE, STAR_SHORTAGE_MESSAGE);
+      return;
+    }
+
     this.has_requested_replay = true;
     this.connection.SendReplay({ replay: "Y" });
     console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "GAME_RESULT", payload: { replay: "Y" } })}`);
@@ -568,6 +583,9 @@ export class AirhockeyScene implements Scene {
 
   // 정상 종료는 내가 나가기를 눌렀거나(exit_requested) RETURN_TO_LOBBY 를 받은 경우(returned_to_lobby)뿐이다.
   private HandleLeave(code?: number): void {
+    // star 부족 팝업이 떠 있으면 닫기가 로비로 보낸다 — 서버가 RETURN_TO_LOBBY 뒤에 끊는 것을 끊김으로 알리지 않는다.
+    if (this.star_popup.visible) return;
+
     if (this.returned_to_lobby) return;
 
     if (this.exit_requested) {
@@ -585,6 +603,12 @@ export class AirhockeyScene implements Scene {
     this.StopPlayUi();
     this.result_popup.Hide();
     this.back_to_lobby_button.visible = true;
+  }
+
+  // star 부족 팝업이 떠 있으면 바로 이동하지 않는다 — 팝업의 닫기가 로비로 보낸다(서버 재게임 대기 10초가 지나면 이 메시지가 온다).
+  private HandleReturnToLobby(): void {
+    if (this.star_popup.visible) return;
+    this.GoToLobbyOnce();
   }
 
   // RETURN_TO_LOBBY, onLeave(나가기 요청 후), '로비로 돌아가기'/'로비로 접속' 버튼 중 무엇이 먼저 오든 한 번만 전환한다.
