@@ -3,7 +3,9 @@
 // 로비 채널 주소/포트는 서버가 따로 알려주지 않으므로 클라이언트에 고정해 둔다.
 
 export const NETWORK_CONFIG = {
-  host: "localhost",
+  // 페이지를 연 주소의 호스트로 서버에 붙는다 — localhost 로 열면 localhost, 개인 IP(192.168.x.x)로 열면 그 IP.
+  // 고정 "localhost" 면 다른 기기(폰)에서 열었을 때 그 기기 자신에게 접속하려다 실패한다.
+  host: window.location.hostname,
   use_tls: false, // 운영 환경에서는 true(wss) — 개발 환경 기본값(ws)과 동일하게 맞춘다
   // 개발 중에는 로비/게임 모두 채널 1만 띄우기로 함 — 채널 2 는 서버에서 아직 안 켬.
   // 운영 전환 시 [6011, 6012] 로 되돌리면 됨 (게임 채널은 서버가 seat_reservation.publicAddress 로

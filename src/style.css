@@ -28,8 +28,21 @@ body {
   align-items: center;
   justify-content: center;
   background: #0a0a12;
+  position: relative;
 }
 
 #app canvas {
   display: block;
+  position: relative;
+  z-index: 1;
+}
+
+/* 로비 3D 캔버스 — Pixi 캔버스(투명 배경) 바로 아래에 같은 크기로 겹친다. 입력은 Pixi 가 받는다. */
+#app canvas.lobby-world-canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 0;
+  pointer-events: none;
 }

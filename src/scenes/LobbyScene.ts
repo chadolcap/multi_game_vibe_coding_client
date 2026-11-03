@@ -1,18 +1,22 @@
 // 로비 씬 — 씬이 뜨면 버튼 없이 바로 로비 소켓에 접속하고, 연결되면 바로 ENTER_LOBBY 를 보낸다.
 // 소켓 연결에 실패하거나 끊어지면 팝업으로 알리고, '로비로 접속' 버튼으로 다시 접속하게 한다.
-// 응답의 name 이 비어 있으면 별명 등록 팝업을 띄운다. 다 끝나면 '내정보 보기' / '게임 참여' 버튼만 남긴다.
+// 응답의 name 이 비어 있으면 별명 등록 팝업을 띄운다. 다 끝나면 3D 섬(LobbyWorld)에서 오리를 걷게 한다.
+// 왼쪽 아래 조이스틱으로 걷고, 그 밖의 화면을 끌면 시점이 돈다(두 손가락은 확대/축소). 건물 앞에 가면 입장 버튼이 뜨고,
+// 가운데 분수에서는 내정보/랭킹 메뉴를 연다.
 // 통신 내용은 화면에 노출하지 않고 콘솔에만 출력한다.
-import { Container, Graphics, Text, Ticker } from "pixi.js";
+import { Container, Graphics, Rectangle, Text, Ticker, type FederatedPointerEvent } from "pixi.js";
 import { CloseCode, type Room } from "@colyseus/sdk";
 import type { Scene } from "./Scene";
 import { Button } from "../ui/Button";
 import { NicknamePopup } from "../ui/NicknamePopup";
+import { VirtualJoystick } from "../ui/VirtualJoystick";
 import { InfoPopup, STAR_SHORTAGE_MESSAGE, STAR_SHORTAGE_TITLE } from "../ui/InfoPopup";
 import { ConnectionLostPopup } from "../ui/ConnectionLostPopup";
 import { GameSelect, GetGameLabel, SELECT_WIDTH } from "../ui/GameSelect";
 import { CUTE_COLOR, CUTE_FONT_FAMILY, CUTE_THEME, CreateCuteBackground } from "../ui/CuteTheme";
-import { GAME_WIDTH } from "../config";
-import { DuckMascot } from "../ui/DuckMascot";
+import { GAME_HEIGHT, GAME_WIDTH } from "../config";
+import { LobbyWorld } from "../lobby3d/LobbyWorld";
+import type { LobbyPlace } from "../lobby3d/lobbyPlaces";
 import type { LoadingOverlay } from "../ui/LoadingOverlay";
 import type { NoticeBanner } from "../ui/NoticeBanner";
 import { LobbyConnection } from "../network/LobbyConnection";
@@ -73,17 +77,35 @@ const AD_VIEW_ERROR_MESSAGE = "잠시 후 다시 시도해 주세요.";
 
 const LOG_TAG = "[Lobby]";
 
-// 화면 세로 배치(720x1280 기준). 타이틀 → 오리 → 메뉴 카드(게임 선택 + 버튼) → 상태 문구 순.
-const TITLE_Y = 70;
-// 오리는 발 가운데가 기준점이다.
-const DUCK_FEET_Y = 500;
+// 화면 세로 배치(720x1280 기준). 메뉴 카드(게임 선택 + 버튼)는 분수에서 열 때만 뜨고, 입장 버튼은 화면 아래에 뜬다.
 const MENU_CARD_WIDTH = 540;
 const MENU_CARD_Y = 520;
 const MENU_CARD_HEIGHT = 460;
-// 메인 메뉴가 떠 있을 때는 상태 문구(매칭 중 등)를 카드 아래에, 접속 중처럼 메뉴가 없을 때는 빈 카드 가운데에 둔다.
-const STATUS_Y_WITH_MENU = 1010;
-const STATUS_Y_WITHOUT_MENU = MENU_CARD_Y + MENU_CARD_HEIGHT / 2 - 20;
-// 상태 문구가 카드 가운데에 놓일 때 카드 테두리를 넘지 않도록 좌우 여백을 둔 줄바꿈 폭.
+// 입장/매칭 취소 버튼과 상태 문구는 화면 위쪽(star 줄 아래)에 둔다 — 아래쪽은 조이스틱과 시점 회전에 쓴다.
+const STATUS_Y = 210;
+const GATE_PASSED_MESSAGE = "무료 입장! 건물 앞으로 걸어가 보세요.";
+const PLACE_BUTTON_WIDTH = 540;
+const PLACE_BUTTON_HEIGHT = 96;
+const PLACE_BUTTON_Y = 96;
+// 왼쪽 아래 조이스틱. 판 가운데에서 JOYSTICK_TOUCH_RADIUS 안을 누르면 조이스틱, 그 밖은 시점 회전이다.
+const JOYSTICK_RADIUS = 100;
+const JOYSTICK_X = 150;
+const JOYSTICK_Y = 1110;
+const JOYSTICK_TOUCH_RADIUS = 190;
+// 마우스 휠 한 칸에 확대/축소하는 비율 (PC 용)
+const WHEEL_ZOOM_STEP = 1.1;
+// PC 이동 키 → 조이스틱 방향(x 오른쪽, y 아래쪽). event.code 라 한글 입력 상태에서도 같은 키로 동작한다.
+const MOVE_KEY_DIRECTIONS: Record<string, [number, number]> = {
+  KeyW: [0, -1],
+  ArrowUp: [0, -1],
+  KeyS: [0, 1],
+  ArrowDown: [0, 1],
+  KeyA: [-1, 0],
+  ArrowLeft: [-1, 0],
+  KeyD: [1, 0],
+  ArrowRight: [1, 0],
+};
+// 상태 문구가 화면 양옆을 넘지 않도록 좌우 여백을 둔 줄바꿈 폭.
 const STATUS_WRAP_WIDTH = MENU_CARD_WIDTH - 60;
 // 화면 왼쪽 위 — 보유 star + '광고 보기' 버튼 한 줄 (타이틀보다 위).
 const STAR_ROW_X = 24;
@@ -131,6 +153,10 @@ export interface GameHandoff {
 export interface LobbySceneOptions {
   loading_overlay: LoadingOverlay;
   notice_banner: NoticeBanner;
+  // Pixi 캔버스 — 3D 캔버스를 같은 크기로 맞춘다.
+  overlay_canvas: HTMLCanvasElement;
+  // 게임에서 돌아온 경우 그 게임 — 3D 섬에서 그 건물 앞에 세운다.
+  return_game?: GameId;
   onGameRoomReady: (handoff: GameHandoff) => void;
 }
 
@@ -138,14 +164,37 @@ export class LobbyScene implements Scene {
   readonly view = new Container();
 
   private readonly status: Text;
-  private readonly title_text: Text;
-  private readonly subtitle_text: Text;
-  // 게임 화면과 같은 컨셉의 오리 캐릭터 — 로비에서는 제자리에서 통통 튀기만 한다.
-  private readonly duck = new DuckMascot();
+  // 3D 섬. 3D 를 쓸 수 없는 기기(WebGL 생성 실패)면 null — 그때는 예전처럼 카드 메뉴로 게임에 들어간다.
+  private world: LobbyWorld | null = null;
+  // 3D 섬 터치를 받는 투명 판 (모든 UI 보다 아래)
+  private readonly world_touch_layer = new Graphics();
+  private readonly joystick = new VirtualJoystick(JOYSTICK_RADIUS);
+  // 손가락마다 따로 본다 — 왼손 조이스틱과 오른손 시점 회전을 동시에 할 수 있다
+  private joystick_pointer: number | null = null;
+  private readonly camera_pointers = new Map<number, { x: number; y: number }>();
+  private pinch_distance: number | null = null;
+  private readonly wheel = (event: WheelEvent) => this.OnWheel(event);
+  // PC 방향키·WASD 로 누르고 있는 키
+  private readonly pressed_move_keys = new Set<string>();
+  private readonly key_down = (event: KeyboardEvent) => this.OnKeyDown(event);
+  private readonly key_up = (event: KeyboardEvent) => this.OnKeyUp(event);
+  // 창이 포커스를 잃으면 keyup 이 오지 않아 계속 걷게 되므로 모두 뗀 것으로 본다
+  private readonly window_blur = () => {
+    this.pressed_move_keys.clear();
+    this.ApplyKeyboardMove();
+  };
+  // 지금 오리가 서 있는 곳 근처의 건물
+  private near_place: LobbyPlace | null = null;
+  // 건물 입장 / 분수 메뉴 열기 버튼
+  private readonly place_button: Button;
+  private readonly close_menu_button: Button;
+  private is_main_ui_shown = false;
+  private is_menu_open = false;
+  private is_matching = false;
+  // 마지막으로 JOIN_MATCH 를 보낸 게임
+  private match_game: GameId = GameId.RPS;
   // 게임 선택 + 버튼을 올려 두는 크림색 카드.
   private readonly menu_card: Graphics;
-  // 화면 가로 중앙 — Resize() 가 갱신하며, 그 전에는 디자인 해상도 기준 값을 쓴다.
-  private center_x = GAME_WIDTH / 2;
   private readonly nickname_popup = new NicknamePopup(CUTE_THEME);
   private readonly info_popup = new InfoPopup(CUTE_THEME);
   // 서버가 꺼졌거나 연결이 끊겨 로비 통신이 안 될 때 — 버튼으로 로비에 다시 접속하게 유도한다.
@@ -189,32 +238,6 @@ export class LobbyScene implements Scene {
       },
     });
 
-    this.title_text = new Text({
-      text: "멀티 게임!",
-      style: {
-        fill: CUTE_COLOR.orange,
-        fontSize: 64,
-        fontFamily: CUTE_FONT_FAMILY,
-        stroke: { color: 0xffffff, width: 11, join: "round" },
-        dropShadow: { color: CUTE_COLOR.orange_dark, alpha: 0.5, distance: 5, angle: Math.PI / 2, blur: 0 },
-      },
-    });
-    this.title_text.anchor.set(0.5, 0);
-
-    this.subtitle_text = new Text({
-      text: "게임을 골라 친구와 대결해요",
-      style: {
-        fill: CUTE_COLOR.shirt_dark,
-        fontSize: 22,
-        fontFamily: CUTE_FONT_FAMILY,
-        stroke: { color: 0xffffff, width: 6, join: "round" },
-      },
-    });
-    this.subtitle_text.anchor.set(0.5, 0);
-
-    // 로비 오리는 깃발 없이 통통 튀기만 한다.
-    this.duck.HideFlags();
-
     this.menu_card = new Graphics()
       .roundRect(0, 8, MENU_CARD_WIDTH, MENU_CARD_HEIGHT, 32)
       .fill({ color: 0x000000, alpha: 0.08 })
@@ -257,11 +280,28 @@ export class LobbyScene implements Scene {
       theme: CUTE_THEME,
       onClick: () => this.OnClickRankWeekly(),
     });
+    this.close_menu_button = new Button({
+      label: "닫기",
+      width: 440,
+      height: 88,
+      theme: CUTE_THEME,
+      onClick: () => this.CloseMenu(),
+    });
+    this.place_button = new Button({
+      label: "",
+      width: PLACE_BUTTON_WIDTH,
+      height: PLACE_BUTTON_HEIGHT,
+      theme: CUTE_THEME,
+      onClick: () => this.OnClickPlace(),
+    });
+    this.menu_card.visible = false;
     this.my_info_button.visible = false;
     this.join_match_button.visible = false;
     this.cancel_match_button.visible = false;
     this.rank_daily_button.visible = false;
     this.rank_weekly_button.visible = false;
+    this.close_menu_button.visible = false;
+    this.place_button.visible = false;
 
     this.star_text = new Text({
       text: "★ 0",
@@ -283,16 +323,33 @@ export class LobbyScene implements Scene {
     this.star_text.visible = false;
     this.ad_button.visible = false;
 
+    this.CreateWorld();
+    this.world_touch_layer.hitArea = new Rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    this.world_touch_layer.eventMode = "static";
+    this.world_touch_layer.on("pointerdown", (event) => this.OnControlDown(event));
+    this.world_touch_layer.on("globalpointermove", (event) => this.OnControlMove(event));
+    this.world_touch_layer.on("pointerup", (event) => this.OnControlUp(event));
+    this.world_touch_layer.on("pointerupoutside", (event) => this.OnControlUp(event));
+    this.joystick.position.set(JOYSTICK_X, JOYSTICK_Y);
+    this.joystick.eventMode = "none"; // 입력은 아래 투명 판이 받는다
+    this.joystick.visible = false;
+    if (this.world) {
+      window.addEventListener("wheel", this.wheel, { passive: true });
+      window.addEventListener("keydown", this.key_down);
+      window.addEventListener("keyup", this.key_up);
+      window.addEventListener("blur", this.window_blur);
+    }
+
     this.view.addChild(
-      CreateCuteBackground(),
-      this.title_text,
-      this.subtitle_text,
-      this.duck,
+      this.world ? this.world_touch_layer : CreateCuteBackground(),
+      this.joystick,
       this.menu_card,
       this.status,
       this.game_select,
       this.my_info_button,
       this.join_match_button,
+      this.close_menu_button,
+      this.place_button,
       this.cancel_match_button,
       this.rank_daily_button,
       this.rank_weekly_button,
@@ -315,6 +372,184 @@ export class LobbyScene implements Scene {
     void this.ConnectToLobby();
   }
 
+  private CreateWorld(): void {
+    const mount = document.querySelector<HTMLDivElement>("#app");
+    if (!mount) return;
+    try {
+      this.world = new LobbyWorld(mount, {
+        overlay_canvas: this.options.overlay_canvas,
+        return_game: this.options.return_game,
+        onNearPlaceChanged: (place) => {
+          this.near_place = place;
+          // 건물에 도착하면 입장 안내는 할 일을 다 했다 (다른 상태 문구는 지우지 않는다).
+          if (place && this.status.text === GATE_PASSED_MESSAGE) this.SetStatus("");
+          this.UpdatePlaceButton();
+        },
+        onGatePassed: () => this.SetStatus(GATE_PASSED_MESSAGE),
+        onPlayerMoved: (x, z) => this.connection.SendLobbyMove(x, z),
+      });
+    } catch (error) {
+      console.error(`${LOG_TAG} 3D 로비 생성 실패 ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  // 메인 화면이고 메뉴가 닫혀 있을 때만 걷고 시점을 돌린다.
+  private CanControlWorld(): boolean {
+    return this.world !== null && this.is_main_ui_shown && !this.is_menu_open;
+  }
+
+  private OnControlDown(event: FederatedPointerEvent): void {
+    if (!this.CanControlWorld()) return;
+    const position = this.world_touch_layer.toLocal(event.global);
+    const from_joystick = Math.hypot(position.x - JOYSTICK_X, position.y - JOYSTICK_Y);
+    if (this.joystick_pointer === null && from_joystick <= JOYSTICK_TOUCH_RADIUS) {
+      this.joystick_pointer = event.pointerId;
+      this.MoveJoystick(position.x, position.y);
+      return;
+    }
+    this.camera_pointers.set(event.pointerId, { x: position.x, y: position.y });
+    this.pinch_distance = null;
+  }
+
+  private OnControlMove(event: FederatedPointerEvent): void {
+    if (!this.CanControlWorld()) return;
+    const position = this.world_touch_layer.toLocal(event.global);
+    if (event.pointerId === this.joystick_pointer) {
+      this.MoveJoystick(position.x, position.y);
+      return;
+    }
+    const previous = this.camera_pointers.get(event.pointerId);
+    if (!previous) return;
+    this.camera_pointers.set(event.pointerId, { x: position.x, y: position.y });
+
+    // 한 손가락 = 회전, 두 손가락 = 확대/축소
+    if (this.camera_pointers.size === 1) {
+      this.world?.RotateCamera(position.x - previous.x, position.y - previous.y);
+      return;
+    }
+    const [first, second] = [...this.camera_pointers.values()];
+    const distance = Math.hypot(first.x - second.x, first.y - second.y);
+    if (this.pinch_distance !== null && distance > 0) this.world?.ZoomCamera(this.pinch_distance / distance);
+    this.pinch_distance = distance;
+  }
+
+  private OnControlUp(event: FederatedPointerEvent): void {
+    if (event.pointerId === this.joystick_pointer) {
+      this.joystick_pointer = null;
+      // 키를 누르고 있으면 그 방향으로 이어서 걷는다
+      this.ApplyKeyboardMove();
+    }
+    this.camera_pointers.delete(event.pointerId);
+    this.pinch_distance = null;
+  }
+
+  private MoveJoystick(x: number, y: number): void {
+    const vector = this.joystick.SetKnob(x - JOYSTICK_X, y - JOYSTICK_Y);
+    this.world?.SetMoveInput(vector.x, vector.y);
+  }
+
+  // 메뉴를 열거나 화면을 떠날 때 — 누르고 있던 조이스틱·드래그를 놓은 것으로 친다.
+  private ReleaseControls(): void {
+    this.joystick_pointer = null;
+    this.pressed_move_keys.clear();
+    this.joystick.Reset();
+    this.world?.SetMoveInput(0, 0);
+    this.camera_pointers.clear();
+    this.pinch_distance = null;
+  }
+
+  private UpdateJoystickVisible(): void {
+    this.joystick.visible = this.CanControlWorld();
+  }
+
+  // PC 방향키·WASD — 화면 조이스틱을 그 방향 끝까지 민 것과 같다. 별명 입력 칸 등에 글자를 칠 때는 무시한다.
+  private OnKeyDown(event: KeyboardEvent): void {
+    if (!(event.code in MOVE_KEY_DIRECTIONS) || !this.CanControlWorld()) return;
+    const target = event.target as HTMLElement | null;
+    if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+    event.preventDefault();
+    if (this.pressed_move_keys.has(event.code)) return; // 키를 누르고 있으면 반복해서 온다
+    this.pressed_move_keys.add(event.code);
+    this.ApplyKeyboardMove();
+  }
+
+  private OnKeyUp(event: KeyboardEvent): void {
+    if (!this.pressed_move_keys.delete(event.code)) return;
+    this.ApplyKeyboardMove();
+  }
+
+  // 누르고 있는 키를 합쳐 이동 방향을 정한다. 화면 조이스틱을 잡고 있으면 그쪽이 우선이다.
+  private ApplyKeyboardMove(): void {
+    if (this.joystick_pointer !== null) return;
+    let x = 0;
+    let y = 0;
+    for (const code of this.pressed_move_keys) {
+      x += MOVE_KEY_DIRECTIONS[code][0];
+      y += MOVE_KEY_DIRECTIONS[code][1];
+    }
+    const length = Math.hypot(x, y);
+    if (length === 0) {
+      this.joystick.Reset();
+      this.world?.SetMoveInput(0, 0);
+      return;
+    }
+    // 대각선도 같은 속도로 — 길이 1 로 맞춘 뒤 조이스틱 손잡이도 그 방향 끝에 보여 준다
+    this.MoveJoystick(JOYSTICK_X + (x / length) * JOYSTICK_RADIUS, JOYSTICK_Y + (y / length) * JOYSTICK_RADIUS);
+  }
+
+  private OnWheel(event: WheelEvent): void {
+    if (!this.CanControlWorld()) return;
+    this.world?.ZoomCamera(event.deltaY > 0 ? WHEEL_ZOOM_STEP : 1 / WHEEL_ZOOM_STEP);
+  }
+
+  // 오리 근처에 입장할 곳이 있고 다른 일을 하는 중이 아닐 때만 입장 버튼을 보여준다.
+  private UpdatePlaceButton(): void {
+    const place = this.near_place;
+    this.place_button.visible = this.is_main_ui_shown && !this.is_menu_open && !this.is_matching && place !== null;
+    if (!place?.action) return;
+    this.place_button.SetLabel(
+      place.action.kind === "game" ? `${place.label} · ${GetGameLabel(place.action.game)} 입장` : `${place.label} · 내정보/랭킹 보기`
+    );
+  }
+
+  private OnClickPlace(): void {
+    const action = this.near_place?.action;
+    if (!action) return;
+    if (action.kind === "game") {
+      this.StartMatch(action.game);
+      return;
+    }
+    this.OpenMenu();
+  }
+
+  // 분수 메뉴 — 게임을 골라 내 전적과 랭킹을 본다. 게임 입장은 건물에서 한다(3D 를 못 쓰면 여기서 입장한다).
+  private OpenMenu(): void {
+    this.is_menu_open = true;
+    this.menu_card.visible = true;
+    this.my_info_button.visible = true;
+    this.rank_daily_button.visible = true;
+    this.rank_weekly_button.visible = true;
+    this.join_match_button.visible = !this.world && !this.is_matching;
+    this.close_menu_button.visible = this.world !== null;
+    this.game_select.Show();
+    this.ReleaseControls();
+    this.UpdateJoystickVisible();
+    this.UpdatePlaceButton();
+  }
+
+  private CloseMenu(): void {
+    this.is_menu_open = false;
+    this.menu_card.visible = false;
+    this.my_info_button.visible = false;
+    this.rank_daily_button.visible = false;
+    this.rank_weekly_button.visible = false;
+    this.join_match_button.visible = false;
+    this.close_menu_button.visible = false;
+    this.game_select.Hide();
+    this.UpdateJoystickVisible();
+    this.UpdatePlaceButton();
+  }
+
   // 정보 팝업을 띄운다. 이때 보이던 게임 선택 드롭다운은 팝업 위로 올라오지 않게 숨긴다.
   private ShowInfoPopup(title: string, content: string): void {
     if (this.game_select.visible) {
@@ -326,21 +561,19 @@ export class LobbyScene implements Scene {
 
   public Resize(width: number, _height: number): void {
     const center_x = width / 2;
-    this.center_x = center_x;
 
-    this.title_text.position.set(center_x, TITLE_Y);
-    this.subtitle_text.position.set(center_x, TITLE_Y + 92);
-    this.duck.position.set(center_x, DUCK_FEET_Y);
     this.menu_card.position.set(center_x - MENU_CARD_WIDTH / 2, MENU_CARD_Y);
 
     this.status.anchor.set(0.5, 0);
-    this.UpdateStatusPosition();
+    this.status.position.set(center_x, STATUS_Y);
 
     this.game_select.position.set(center_x - SELECT_WIDTH / 2, MENU_CARD_Y + 44);
 
     this.my_info_button.position.set(center_x - this.my_info_button.width / 2, MENU_CARD_Y + 136);
     this.join_match_button.position.set(center_x - this.join_match_button.width / 2, MENU_CARD_Y + 246);
-    this.cancel_match_button.position.set(center_x - this.cancel_match_button.width / 2, MENU_CARD_Y + 246);
+    this.close_menu_button.position.set(center_x - this.close_menu_button.width / 2, MENU_CARD_Y + 246);
+    this.place_button.position.set(center_x - PLACE_BUTTON_WIDTH / 2, PLACE_BUTTON_Y);
+    this.cancel_match_button.position.set(center_x - this.cancel_match_button.width / 2, PLACE_BUTTON_Y);
 
     const rank_gap = 20;
     const rank_row_width = this.rank_daily_button.width + rank_gap + this.rank_weekly_button.width;
@@ -352,18 +585,16 @@ export class LobbyScene implements Scene {
     this.ad_button.position.set(AD_BUTTON_X, STAR_ROW_Y);
   }
 
-  // 메인 메뉴가 있으면 카드 아래, 없으면(접속 중 등) 빈 카드 가운데에 상태 문구를 둔다.
-  // 메인 메뉴가 떠 있는지는 따로 플래그를 두지 않고 항상 보이는 '내정보 보기' 버튼으로 판단한다.
-  private UpdateStatusPosition(): void {
-    const is_main_ui_shown = this.my_info_button.visible;
-    this.status.position.set(this.center_x, is_main_ui_shown ? STATUS_Y_WITH_MENU : STATUS_Y_WITHOUT_MENU);
-  }
-
   public Destroy(): void {
     // 게임 씬으로 넘어간 뒤 늦게 도착한 로비 종료 이벤트가 파괴된 씬이나 전역 로딩 오버레이를 건드리지 않게 콜백을 끊는다.
     this.connection.Dispose();
     this.nickname_popup.DestroyPopup();
     this.game_select.DestroySelect();
+    window.removeEventListener("wheel", this.wheel);
+    window.removeEventListener("keydown", this.key_down);
+    window.removeEventListener("keyup", this.key_up);
+    window.removeEventListener("blur", this.window_blur);
+    this.world?.Destroy();
     this.view.destroy({ children: true });
   }
 
@@ -387,6 +618,15 @@ export class LobbyScene implements Scene {
             FormatRankList(envelope.payload.list, envelope.payload.my)
           ),
         onAdViewComplete: (envelope) => this.HandleAdViewComplete(envelope.payload),
+        onLobbyUsers: (envelope) => {
+          this.world?.SetPlayerColor(envelope.payload.color);
+          this.world?.SetRemoteUsers(envelope.payload.users);
+        },
+        onLobbyUserJoin: (envelope) => this.world?.UpsertRemoteUser(envelope.payload),
+        onLobbyUserLeave: (envelope) => this.world?.RemoveRemoteUser(envelope.payload.id),
+        onLobbyMoves: (envelope) => {
+          for (const [id, x, z] of envelope.payload.moves) this.world?.MoveRemoteUser(id, x, z);
+        },
         onJoinMatchResult: (envelope) => {
           // 성공(result:Y)은 문서상 이 type 으로 오는 것으로 되어 있지만, 실제로는 MATCH_FOUND 로 온다(비고 참고).
           // 실패만 여기서 처리하고, 연결은 유지되니 다시 '게임 참여'를 누를 수 있게 한다.
@@ -447,6 +687,7 @@ export class LobbyScene implements Scene {
   // 서버와 통신이 안 될 때 팝업으로 알린다. HTML 오버레이(별명 입력/게임 선택)는 캔버스 위에 떠 있어 팝업에
   // 가려지지 않으므로 먼저 모두 숨기고, 다른 팝업/로딩도 닫아 이 팝업 하나만 남긴다.
   private ShowConnectionLost(message: string): void {
+    this.world?.SetRemoteUsers([]);
     this.options.loading_overlay.Hide();
     this.info_popup.Hide();
     this.nickname_popup.Hide();
@@ -464,15 +705,13 @@ export class LobbyScene implements Scene {
 
   // 로비 메인 UI(내정보/게임 참여/랭킹 버튼과 게임 선택)를 모두 숨긴다. 재접속 상태로 되돌릴 때 쓴다.
   private HideMainUi(): void {
-    this.my_info_button.visible = false;
-    this.join_match_button.visible = false;
+    this.is_main_ui_shown = false;
+    this.is_matching = false;
+    this.ReleaseControls();
+    this.CloseMenu();
     this.cancel_match_button.visible = false;
-    this.rank_daily_button.visible = false;
-    this.rank_weekly_button.visible = false;
     this.star_text.visible = false;
     this.ad_button.visible = false;
-    this.game_select.Hide();
-    this.UpdateStatusPosition();
   }
 
   // ENTER_LOBBY 응답 처리. 실패(result:N)면 메시지만 보여주고, 성공(result:Y)이면 name 이 공백일 때
@@ -518,15 +757,14 @@ export class LobbyScene implements Scene {
   private ShowMainUi(): void {
     // 문구만 비우고 숨기지는 않는다 — 이후 SetStatus(재접속 실패 등)로 띄운 문구가 보여야 한다.
     this.SetStatus("");
-    this.my_info_button.visible = true;
-    this.join_match_button.visible = true;
-    this.rank_daily_button.visible = true;
-    this.rank_weekly_button.visible = true;
+    this.is_main_ui_shown = true;
     this.star_text.visible = true;
     this.ad_button.visible = true;
     this.ad_button.SetEnabled(true);
-    this.game_select.Show();
-    this.UpdateStatusPosition();
+    // 3D 를 못 쓰면 걸어갈 건물이 없으니 예전처럼 카드 메뉴를 바로 띄운다.
+    if (!this.world) this.OpenMenu();
+    this.UpdateJoystickVisible();
+    this.UpdatePlaceButton();
   }
 
   private OnClickRankDaily(): void {
@@ -549,13 +787,18 @@ export class LobbyScene implements Scene {
   }
 
   private OnClickJoinMatch(): void {
+    this.StartMatch(this.game_select.GetSelectedGame());
+  }
+
+  private StartMatch(game: GameId): void {
     // star 가 없으면 서버 응답(NOT_ENOUGH_STAR)을 기다리지 않고 바로 안내한다.
     if (this.star <= 0) {
       this.ShowNotEnoughStar();
       return;
     }
 
-    const payload = { game: this.game_select.GetSelectedGame(), select: "Y" as const };
+    this.match_game = game;
+    const payload = { game, select: "Y" as const };
     this.connection.SendJoinMatch(payload);
     console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "JOIN_MATCH", payload })}`);
     // MATCH_FOUND 는 다른 유저가 매칭될 때까지 즉시 오지 않으므로, 그때까지 취소할 수 있게 한다.
@@ -565,7 +808,7 @@ export class LobbyScene implements Scene {
   }
 
   private OnClickCancelMatch(): void {
-    const payload = { game: this.game_select.GetSelectedGame(), select: "N" as const };
+    const payload = { game: this.match_game, select: "N" as const };
     this.connection.SendJoinMatch(payload);
     console.log(`${LOG_TAG} C -> S ${JSON.stringify({ type: "JOIN_MATCH", payload })}`);
     this.SetStatus("매칭을 취소했습니다.");
@@ -573,15 +816,19 @@ export class LobbyScene implements Scene {
   }
 
   private ShowJoinMatchButton(): void {
-    this.join_match_button.visible = true;
+    this.is_matching = false;
+    this.join_match_button.visible = !this.world && this.is_menu_open;
     this.join_match_button.SetEnabled(true);
     this.cancel_match_button.visible = false;
+    this.UpdatePlaceButton();
   }
 
   private ShowCancelMatchButton(): void {
+    this.is_matching = true;
     this.join_match_button.visible = false;
     this.cancel_match_button.visible = true;
     this.cancel_match_button.SetEnabled(true);
+    this.UpdatePlaceButton();
   }
 
   // 매칭 성사 — seat_reservation 으로 게임 채널에 새로 접속한다.
@@ -589,6 +836,11 @@ export class LobbyScene implements Scene {
   private async HandleMatchFound(payload: MatchFoundPayload): Promise<void> {
     // 매칭이 성사됐으니 더 이상 취소할 수 없다.
     this.cancel_match_button.visible = false;
+    this.is_matching = false;
+    this.is_main_ui_shown = false;
+    this.place_button.visible = false;
+    this.ReleaseControls();
+    this.UpdateJoystickVisible();
     // 혼자 하는 게임(청기백기)은 opponent 가 오지 않는다.
     const opponent_text = payload.opponent ? ` 상대: ${payload.opponent.name || "(이름 없음)"} —` : "";
     this.options.loading_overlay.Show(`매칭 완료!${opponent_text} 게임 채널 접속 중...`);
@@ -597,7 +849,7 @@ export class LobbyScene implements Scene {
       const game_room = await this.connection.ConsumeMatchSeat(payload.seat_reservation);
       console.log(`${LOG_TAG} 게임 채널 접속 완료 roomId=${game_room.roomId} sessionId=${game_room.sessionId}`);
       // 게임 종류는 방 이름(othello_1 등)이 가장 정확하다. 못 뽑으면 내가 로비에서 선택해 둔 게임을 쓴다.
-      const game = ParseGameIdFromRoomName(payload.room_name) ?? this.game_select.GetSelectedGame();
+      const game = ParseGameIdFromRoomName(payload.room_name) ?? this.match_game;
       this.options.onGameRoomReady({ room: game_room, game, my_userid: this.my_userid, is_rejoin: false });
     } catch (error) {
       console.error(`${LOG_TAG} 게임 채널 접속 실패 ${error instanceof Error ? error.message : String(error)}`);
@@ -606,6 +858,8 @@ export class LobbyScene implements Scene {
       if (this.connection.IsConnected()) {
         // 로비 연결이 아직 살아있으면 그대로 다시 '게임 참여'를 누를 수 있게 한다.
         this.SetStatus("게임 채널 접속 실패 (콘솔 확인) — 다시 시도해 주세요.");
+        this.is_main_ui_shown = true;
+        this.UpdateJoystickVisible();
         this.ShowJoinMatchButton();
         return;
       }

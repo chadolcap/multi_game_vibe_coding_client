@@ -24,6 +24,10 @@ import {
   type RankDailyPayload,
   type RankWeeklyPayload,
   type AdViewCompleteResultPayload,
+  type LobbyUserInfo,
+  type LobbyUsersPayload,
+  type LobbyUserLeavePayload,
+  type LobbyMovesPayload,
 } from "../common/types";
 
 const LOG_TAG = "[Lobby]";
@@ -52,6 +56,11 @@ export interface LobbyEventHandlers {
   onRankWeekly?: (envelope: Envelope<RankWeeklyPayload>) => void;
   // 광고 시청 보상 응답 — 성공·실패 모두 같은 type 으로 오고, 둘 다 지금 보유 star 가 들어 있다.
   onAdViewComplete?: (envelope: Envelope<AdViewCompleteResultPayload>) => void;
+  // 로비의 다른 유저들 — 위치가 자주 오가므로 로그를 남기지 않는다(에어하키 PUCK_MOVE 와 같은 예외).
+  onLobbyUsers?: (envelope: Envelope<LobbyUsersPayload>) => void;
+  onLobbyUserJoin?: (envelope: Envelope<LobbyUserInfo>) => void;
+  onLobbyUserLeave?: (envelope: Envelope<LobbyUserLeavePayload>) => void;
+  onLobbyMoves?: (envelope: Envelope<LobbyMovesPayload>) => void;
   onError?: (envelope: Envelope<ErrorPayload>) => void;
   // 관리자 공지(SEND_NOTICE, 같은 type 재사용) — 로비에 접속해 있는 동안 언제든 올 수 있다.
   onNotice?: (envelope: Envelope<NoticePayload>) => void;
@@ -130,6 +139,22 @@ export class LobbyConnection {
     this.room.onMessage(MessageType.AD_VIEW_COMPLETE, (envelope: Envelope<AdViewCompleteResultPayload>) => {
       LogReceived(MessageType.AD_VIEW_COMPLETE, envelope);
       this.handlers?.onAdViewComplete?.(envelope);
+    });
+    this.room.onMessage(MessageType.LOBBY_USERS, (envelope: Envelope<LobbyUsersPayload>) => {
+      LogReceived(MessageType.LOBBY_USERS, envelope);
+      this.handlers?.onLobbyUsers?.(envelope);
+    });
+    this.room.onMessage(MessageType.LOBBY_USER_JOIN, (envelope: Envelope<LobbyUserInfo>) => {
+      LogReceived(MessageType.LOBBY_USER_JOIN, envelope);
+      this.handlers?.onLobbyUserJoin?.(envelope);
+    });
+    this.room.onMessage(MessageType.LOBBY_USER_LEAVE, (envelope: Envelope<LobbyUserLeavePayload>) => {
+      LogReceived(MessageType.LOBBY_USER_LEAVE, envelope);
+      this.handlers?.onLobbyUserLeave?.(envelope);
+    });
+    this.room.onMessage(MessageType.LOBBY_MOVES, (envelope: Envelope<LobbyMovesPayload>) => {
+      LogReceived(MessageType.LOBBY_MOVES, envelope);
+      this.handlers?.onLobbyMoves?.(envelope);
     });
     this.room.onMessage(MessageType.ERROR, (envelope: Envelope<ErrorPayload>) => {
       LogReceived(MessageType.ERROR, envelope);
@@ -228,6 +253,18 @@ export class LobbyConnection {
     if (!this.room) throw new Error("로비에 접속되어 있지 않습니다.");
     this.room.send(MessageType.AD_VIEW_COMPLETE, {});
     LogSent(MessageType.AD_VIEW_COMPLETE, {});
+  }
+
+  // 내 오리 위치 — 걷는 동안 초당 5번까지 보낸다. 다른 메시지처럼 모두 로그를 남긴다.
+  // 로비 연결 전(3D 월드가 먼저 뜬 직후)에는 보낼 곳이 없어 버려지므로, 그것도 로그로 알린다.
+  public SendLobbyMove(x: number, z: number): void {
+    const payload = { x, z };
+    if (!this.room) {
+      console.log(`${LOG_TAG} 로비 미접속 — 보내지 못함 ${JSON.stringify({ type: MessageType.LOBBY_MOVE, payload })}`);
+      return;
+    }
+    this.room.send(MessageType.LOBBY_MOVE, payload);
+    LogSent(MessageType.LOBBY_MOVE, payload);
   }
 
   // 씬이 파괴될 때 호출한다 — 콜백만 끊는다. 로비 연결은 매칭 성사 시 서버가 스스로 끊으므로 여기서 닫지 않는다.

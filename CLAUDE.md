@@ -66,8 +66,9 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 | `src/common/channelNames.ts` | `ParseGameIdFromRoomName()` 등 채널 이름 규칙 |
 | `src/network/` | `LobbyConnection`, `WatcherConnection` |
 | `src/scenes/` | `SceneManager`, `LobbyScene` |
+| `src/lobby3d/` | 로비 3D(three.js) — `LobbyWorld`(렌더·오리 이동·카메라·충돌), `IslandOne`(코드로 만든 1번 섬 모델), `lobbyPlaces`(건물 배치표 + 건물→게임 연결) |
 | `src/ads/` | `AdService` — 보상형(`ShowRewardedAd`)/전면(`ShowInterstitialAd`) 광고. AdSense H5 게임 광고(`adBreak`), `VITE_ADSENSE_CLIENT`(`.env.local`) 없으면 DOM 가짜 광고 |
-| `src/ui/` | 공용 컴포넌트 — `Button`, `InfoPopup`, `GameResultPopup`, `GameStartBanner`, `RoundResultBanner`, `ConnectionLostPopup`, `NoticeBanner`, `LoadingOverlay`, `PlayerPanel`, `DuckMascot`(결과 오리), `Confetti`(색종이), `CuteTheme`/`UiTheme`(테마) |
+| `src/ui/` | 공용 컴포넌트 — `Button`, `InfoPopup`, `GameResultPopup`, `GameStartBanner`, `RoundResultBanner`, `ConnectionLostPopup`, `NoticeBanner`, `LoadingOverlay`, `PlayerPanel`, `DuckMascot`(결과 오리), `Confetti`(색종이), `VirtualJoystick`(화면 조이스틱), `CuteTheme`/`UiTheme`(테마) |
 | `src/games/rps/` | `RpsScene`, `RpsConnection`, `RpsChoicePanel`, `RpsFlagDuck`(중앙 오리 — 시트 `src/assets/images/sheet/duck_flags.png` 9프레임 중 4개), `types.ts` |
 | `src/games/othello/` | `OthelloScene`, `OthelloConnection`, `OthelloBoard`(8x8), `OthelloColorPanel`, `types.ts` |
 | `src/games/stepping/` | `SteppingScene`, `SteppingConnection`, `SteppingMap`(맵 생성), `SteppingView`(한 유저 플레이 화면), `types.ts` |
@@ -96,6 +97,24 @@ d:\work\study\multi_game_vibe_coding\멀티게임_바이브.xlsx
 - 로비↔게임 전환은 `main.ts`의 두 함수만 한다.
   - `GoToLobby()`: 새 `LobbyScene`을 띄우고, 이 씬이 로비 소켓에 자동 접속한다.
   - `HandleGameRoomReady()`: `GameHandoff.game`으로 게임 씬을 고른다. 씬 옵션은 모든 게임이 같다.
+
+### 로비 3D (1번 섬)
+
+| 항목 | 내용 |
+| --- | --- |
+| 화면 구조 | three.js 캔버스(`.lobby-world-canvas`)를 Pixi 캔버스 **아래**에 겹친다. 입력과 UI 는 Pixi 가 맡고, `LobbyScene` 의 투명 판이 터치를 `LobbyWorld` 로 넘긴다 |
+| 조작 | 왼쪽 아래 `VirtualJoystick` 근처(`JOYSTICK_TOUCH_RADIUS`)를 누르면 이동(`SetMoveInput`, **카메라가 보는 방향 기준**), 그 밖을 끌면 시점 회전(`RotateCamera`, 좌우=오리 주위, 위아래=내려다보는 각), 두 손가락은 확대/축소(`ZoomCamera`, PC 는 마우스 휠). PC 는 방향키·WASD 로도 걷는다(`MOVE_KEY_DIRECTIONS`, `event.code` 기준이라 한글 입력 상태도 동작, 입력 칸에 칠 때는 무시, 창 포커스를 잃으면 모두 뗀 것으로 봄). 키 입력도 조이스틱 손잡이에 보여 주고, 화면 조이스틱을 잡고 있으면 그쪽이 우선이다. 손가락마다 `pointerId` 로 따로 추적해 왼손 이동과 오른손 회전을 동시에 한다. 터치한 곳으로 걸어가기는 없다. 메뉴가 열려 있으면 조작을 놓고 조이스틱을 숨긴다 |
+| 화면 배치 | 입장 버튼·매칭 취소·상태 문구는 위쪽(star 줄 아래). 아래쪽은 조이스틱과 시점 회전 자리 |
+| 투명 배경 | Pixi WebGL 컨텍스트의 투명 여부는 생성 때 정해지므로 `backgroundAlpha: 0` 으로 만들고, `main.ts` 가 로비에서 `background.alpha = 0`, 게임에서 `1` 로 바꾼다 |
+| 캔버스 순서 | ⚠️ `GameSelect`/`NicknamePopup` 이 `#app canvas`(첫 캔버스)로 위치를 재므로 3D 캔버스는 DOM 에서 Pixi **뒤**에 붙이고 z-index 로만 아래에 깐다 |
+| 시작 위치 | 접속하면 매표소 앞. 게임에서 돌아오면 그 게임 건물 앞에서 건물을 보고 선다(`main.ts` `GoToLobby(game)` → `LobbySceneOptions.return_game` → `LobbyWorldOptions.return_game`). 서버는 매표소 앞으로 알고 있어서 바로 내 위치를 다시 보낸다 |
+| 흐름 | 매표소 앞 → 게이트 무료 통과 → 건물 앞에서 입장 버튼 → `JOIN_MATCH`. 가운데 분수는 게임 선택 + 내정보/랭킹 메뉴 |
+| 건물 → 게임 | `lobbyPlaces.ts` 의 `LOBBY_PLACES.action` 표 — ⚠️ **임시 배정**. 다리 2개는 2~5번 섬 전까지 공사 중으로 막혀 있다 |
+| 다른 유저 | 내 위치를 최대 0.2초마다 `LOBBY_MOVE` 로 보낸다. `LOBBY_USERS`/`LOBBY_USER_JOIN`/`LOBBY_USER_LEAVE`/`LOBBY_MOVES` 로 다른 유저 오리를 그리고, 받은 위치 사이는 `LobbyWorld` 가 걸어서 메운다. id 는 로비 sessionId, 머리 위에 별명이 뜬다. 오리 색은 **서버가 정한다** — 내 색은 `LOBBY_USERS.color`(`SetPlayerColor`), 남의 색은 `LobbyUserInfo.color`. 그래서 내 화면의 내 오리와 남의 화면의 내 오리가 같은 색이다. 클라이언트에서 색을 정하지 말 것. 같은 로비 채널 유저만 보이며 서로 충돌하지 않는다. 위치 메시지도 다른 메시지처럼 모두 로그를 남긴다(로비 연결 전에 버려진 `LOBBY_MOVE` 포함) |
+| 정리 | `LobbyWorld.Destroy()` 가 렌더 루프·GPU 자원·WebGL 컨텍스트를 돌려준다. 게임 중에는 3D 캔버스가 없다 |
+| 깜빡임 방지 | ⚠️ 겹치는 평면은 높이를 띄운다(잔디 0 / 절벽 윗면 -0.05 / 광장 0.03 / 길 0.06). 간판·별명은 `alphaTest` 로 불투명 처리, 구름도 불투명 — 반투명은 그리는 순서가 바뀌며 깜빡인다 |
+| WebGL 실패 | `world === null` 이면 예전 카드 메뉴로 게임에 들어간다 |
+| 성능 측정 | ⚠️ 자동화 브라우저 탭은 Pixi 만 있어도 약 1.3fps 로 제한된다. fps 는 일반 창이나 실기기에서 잰다 |
 
 ### 로비 → 게임 채널 (매치메이킹)
 

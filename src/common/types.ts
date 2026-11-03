@@ -32,6 +32,12 @@ export const MessageType = {
   // C->S {} — 로비에서 광고를 끝까지 본 뒤 보낸다 / S->C 같은 type 재사용 (AdViewCompleteResultPayload).
   // ENTER_LOBBY 성공 전에 보내면 서버가 응답 없이 무시한다 (서버 docs/HANDOFF.md 2026-10-30).
   AD_VIEW_COMPLETE: "AD_VIEW_COMPLETE",
+  // 로비 3D 섬에서 서로 보기. 서버 원본: server_ruflo/src/common/types.ts
+  LOBBY_MOVE: "LOBBY_MOVE", // C->S {x, z} — 내 오리 위치
+  LOBBY_USERS: "LOBBY_USERS", // S->C {users, color} — ENTER_LOBBY 성공 직후 한 번, 지금 로비의 다른 유저 전부 + 내 오리 색
+  LOBBY_USER_JOIN: "LOBBY_USER_JOIN", // S->C LobbyUserInfo — 새 유저. 별명을 정했을 때도 같은 id 로 다시 온다
+  LOBBY_USER_LEAVE: "LOBBY_USER_LEAVE", // S->C {id}
+  LOBBY_MOVES: "LOBBY_MOVES", // S->C {moves:[[id, x, z]…]} — 0.2초마다 바뀐 위치만 묶어서 온다. 내 위치도 섞여 있으니 모르는 id 는 무시한다
   ERROR: "ERROR", // S->C
 
   // 관리자(Watcher) 채널 전용 — 로컬 엑셀 "관리자" 시트 + 서버 소스(server_ruflo/src/common/types.ts) 기준.
@@ -88,6 +94,29 @@ export interface EnterLobbyResultPayload {
   avatar?: string; // result:Y 일 때만
   star?: number; // result:Y 일 때만 — 보유 star. 신규 유저는 가입 보너스 5 (2026-10-30 추가)
   error?: number; // result:N 일 때만
+}
+
+// 로비의 다른 유저. id 는 userid 가 아니라 로비 sessionId 다.
+export interface LobbyUserInfo {
+  id: string;
+  name: string;
+  avatar: string;
+  color: number; // 오리 색 0xRRGGBB — 서버가 정해 모두에게 같은 값을 준다
+  x: number;
+  z: number;
+}
+
+export interface LobbyUsersPayload {
+  users: LobbyUserInfo[];
+  color: number; // 내 오리 색
+}
+
+export interface LobbyUserLeavePayload {
+  id: string;
+}
+
+export interface LobbyMovesPayload {
+  moves: [id: string, x: number, z: number][];
 }
 
 // AD_VIEW_COMPLETE 응답 (S->C, 같은 type 재사용). 서버 원본: server_ruflo/src/common/types.ts AdViewCompleteResultPayload

@@ -40,6 +40,8 @@ async function Main(): Promise<void> {
   const app = new Application();
   await app.init({
     background: "#1a1a2e",
+    // 로비는 3D 캔버스가 Pixi 아래에 보여야 한다. WebGL 컨텍스트의 투명 여부는 생성할 때 정해지므로 처음부터 투명으로 만든다.
+    backgroundAlpha: 0,
     width: GAME_WIDTH,
     height: GAME_HEIGHT,
     antialias: true,
@@ -56,10 +58,14 @@ async function Main(): Promise<void> {
   const scene_manager = new SceneManager(app, [loading_overlay, notice_banner]);
 
   // 게임에서 로비로 돌아가면 새 로비 씬을 만든다. 새 씬은 뜨자마자 스스로 로비 소켓 접속을 시도한다.
-  function GoToLobby(): void {
+  // return_game: 게임에서 돌아온 경우 그 게임 — 로비 3D 섬에서 그 건물 앞에 선다(없으면 매표소 앞).
+  function GoToLobby(return_game?: GameId): void {
+    app.renderer.background.alpha = 0;
     const lobby_scene = new LobbyScene({
       loading_overlay,
       notice_banner,
+      overlay_canvas: app.canvas,
+      return_game,
       onGameRoomReady: HandleGameRoomReady,
     });
     scene_manager.ChangeScene(lobby_scene);
@@ -69,26 +75,27 @@ async function Main(): Promise<void> {
   // 전면 광고를 보여준 뒤 로비로 간다 (서버 docs/HANDOFF.md 2-2).
   // 비정상 종료로 끊기면 서버가 재접속을 기다려 로비 입장 때 REJOIN_GAME 이 올 수 있으므로 반드시 leave(true) 로 끊는다.
   // leave() 의 Promise 는 이미 끊긴 소켓이면 끝나지 않을 수 있어 기다리지 않는다.
-  async function ExitGameToLobby(room: GameHandoff["room"]): Promise<void> {
+  async function ExitGameToLobby(room: GameHandoff["room"], game: GameId): Promise<void> {
     try {
       void room.leave(true);
     } catch (error) {
       console.warn(`게임방 나가기 실패 ${error instanceof Error ? error.message : String(error)}`);
     }
     await ShowInterstitialAd();
-    GoToLobby();
+    GoToLobby(game);
   }
 
   // 로비에서 매칭이 성사되어 게임 채널 접속까지 끝나면 호출된다.
   function HandleGameRoomReady(handoff: GameHandoff): void {
     loading_overlay.Hide();
+    app.renderer.background.alpha = 1;
     // 게임 종류별로 씬 옵션은 같다 — 서버가 방 입장/준비/결과를 같은 규약으로 보내기 때문이다.
     const scene_options = {
       room: handoff.room,
       my_userid: handoff.my_userid,
       is_rejoin: handoff.is_rejoin,
       notice_banner,
-      onExitToLobby: () => void ExitGameToLobby(handoff.room),
+      onExitToLobby: () => void ExitGameToLobby(handoff.room, handoff.game),
     };
     const game_scene =
       handoff.game === GameId.OTHELLO
